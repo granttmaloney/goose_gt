@@ -1,10 +1,11 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Button } from '../../ui/button';
-import { Plus } from 'lucide-react';
+import { Plus, Wrench } from 'lucide-react';
 import { GPSIcon } from '../../ui/icons';
 import { useConfig, FixedExtensionEntry } from '../../ConfigContext';
 import ExtensionList from './subcomponents/ExtensionList';
 import ExtensionModal from './modal/ExtensionModal';
+import ExtensionBuilder from './ExtensionBuilder';
 import {
   createExtensionConfig,
   ExtensionFormData,
@@ -37,6 +38,7 @@ export default function ExtensionsSection({
   const [selectedExtension, setSelectedExtension] = useState<FixedExtensionEntry | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [showBuilder, setShowBuilder] = useState(false);
   const [deepLinkConfigStateVar, setDeepLinkConfigStateVar] = useState<
     ExtensionConfig | undefined | null
   >(deepLinkConfig);
@@ -186,6 +188,10 @@ export default function ExtensionsSection({
     }
   };
 
+  const handleBuilderClose = () => {
+    setShowBuilder(false);
+  };
+
   return (
     <section id="extensions">
       <div className="">
@@ -205,6 +211,14 @@ export default function ExtensionsSection({
             >
               <Plus className="h-4 w-4" />
               Add custom extension
+            </Button>
+            <Button
+              className="flex items-center gap-2 justify-center"
+              variant="secondary"
+              onClick={() => setShowBuilder(true)}
+            >
+              <Wrench className="h-4 w-4" />
+              Extension Builder
             </Button>
             <Button
               className="flex items-center gap-2 justify-center"
@@ -255,6 +269,25 @@ export default function ExtensionsSection({
             submitLabel="Add Extension"
             modalType={'add'}
           />
+        )}
+
+        {/* Extension Builder */}
+        {showBuilder && (
+          <div className="fixed inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-gray-900 rounded-lg shadow-xl max-w-7xl w-full max-h-[90vh] overflow-y-auto">
+              <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-xl font-semibold text-textStandard">Extension Builder</h2>
+                  <Button variant="ghost" onClick={handleBuilderClose}>
+                    ✕
+                  </Button>
+                </div>
+              </div>
+              <div className="p-4">
+                <ExtensionBuilder />
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </section>
