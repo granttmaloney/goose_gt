@@ -319,6 +319,16 @@ export type FrontendToolRequest = {
     };
 };
 
+/**
+ * Request structure for AI extension generation
+ */
+export type GenerateExtensionRequest = {
+    /**
+     * Natural language description of the desired extension
+     */
+    prompt: string;
+};
+
 export type GetToolsQuery = {
     extension_name?: string | null;
     session_id: string;
@@ -1634,6 +1644,33 @@ export type ManageContextResponses = {
 };
 
 export type ManageContextResponse = ManageContextResponses[keyof ManageContextResponses];
+
+export type GenerateExtensionFromPromptData = {
+    body: GenerateExtensionRequest;
+    path?: never;
+    query?: never;
+    url: '/extensions/generate';
+};
+
+export type GenerateExtensionFromPromptErrors = {
+    /**
+     * Bad request
+     */
+    400: unknown;
+    /**
+     * Internal server error
+     */
+    500: unknown;
+};
+
+export type GenerateExtensionFromPromptResponses = {
+    /**
+     * Extension generated successfully
+     */
+    200: ExtensionResponse;
+};
+
+export type GenerateExtensionFromPromptResponse = GenerateExtensionFromPromptResponses[keyof GenerateExtensionFromPromptResponses];
 
 export type StartOpenrouterSetupData = {
     body?: never;

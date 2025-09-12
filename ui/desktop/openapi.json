@@ -886,6 +886,43 @@
         ]
       }
     },
+    "/extensions/generate": {
+      "post": {
+        "tags": [
+          "Extension Management"
+        ],
+        "summary": "Handler for generating an extension from AI prompt",
+        "operationId": "generate_extension_from_prompt",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateExtensionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Extension generated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExtensionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
     "/handle_openrouter": {
       "post": {
         "tags": [
@@ -2436,6 +2473,19 @@
           },
           "toolCall": {
             "type": "object"
+          }
+        }
+      },
+      "GenerateExtensionRequest": {
+        "type": "object",
+        "description": "Request structure for AI extension generation",
+        "required": [
+          "prompt"
+        ],
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "Natural language description of the desired extension"
           }
         }
       },

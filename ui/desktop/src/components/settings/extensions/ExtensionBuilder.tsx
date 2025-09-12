@@ -1,23 +1,22 @@
-import React, { useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { Button } from '../../ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../ui/tabs';
 import { Badge } from '../../ui/badge';
-import { 
-  Play, 
-  Save, 
-  Download, 
-  Upload, 
-  Code, 
-  Settings, 
+import {
+  Save,
+  Download,
+  Upload,
+  Code,
+  Settings,
   TestTube,
   CheckCircle,
   XCircle,
-  AlertTriangle,
   FileCode,
   Globe,
   Terminal,
-  Zap
+  Zap,
+  Sparkles,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
@@ -28,6 +27,7 @@ import ToolBuilder from './builder/ToolBuilder';
 import DependencyManager from './builder/DependencyManager';
 import ExtensionTester from './builder/ExtensionTester';
 import ExtensionExporter from './builder/ExtensionExporter';
+import AIExtensionGenerator from './AIExtensionGenerator';
 
 // Types
 export interface ExtensionBuilderData {
@@ -50,7 +50,7 @@ export interface ToolDefinition {
   description: string;
   inputSchema: {
     type: string;
-    properties: Record<string, any>;
+    properties: Record<string, { type: string; description?: string }>;
     required?: string[];
   };
 }
@@ -83,7 +83,7 @@ const ExtensionBuilder: React.FC = () => {
 
   // Update extension data
   const updateExtensionData = useCallback((updates: Partial<ExtensionBuilderData>) => {
-    setExtensionData(prev => ({ ...prev, ...updates }));
+    setExtensionData((prev) => ({ ...prev, ...updates }));
   }, []);
 
   // Test extension
@@ -94,14 +94,14 @@ const ExtensionBuilder: React.FC = () => {
     try {
       // TODO: Implement actual testing API call
       // For now, simulate testing
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+
       const result: TestResult = {
         success: true,
         errors: [],
         warnings: [],
         tools: extensionData.tools,
-        executionTime: 1.2
+        executionTime: 1.2,
       };
 
       setTestResult(result);
@@ -110,7 +110,7 @@ const ExtensionBuilder: React.FC = () => {
       const result: TestResult = {
         success: false,
         errors: ['Failed to test extension: ' + (error as Error).message],
-        warnings: []
+        warnings: [],
       };
       setTestResult(result);
       toast.error('Extension test failed');
@@ -124,7 +124,7 @@ const ExtensionBuilder: React.FC = () => {
     setIsSaving(true);
     try {
       // TODO: Implement actual save API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
       toast.success('Extension saved successfully!');
     } catch (error) {
       toast.error('Failed to save extension: ' + (error as Error).message);
@@ -139,11 +139,11 @@ const ExtensionBuilder: React.FC = () => {
       ...extensionData,
       version: '1.0.0',
       created: new Date().toISOString(),
-      author: 'User'
+      author: 'User',
     };
-    
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], { 
-      type: 'application/json' 
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], {
+      type: 'application/json',
     });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -153,8 +153,17 @@ const ExtensionBuilder: React.FC = () => {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    
+
     toast.success('Extension exported successfully!');
+  };
+
+  // Handle AI-generated extension
+  const handleExtensionGenerated = () => {
+    toast.success(
+      'Extension generated successfully! You can now review and modify it in the tabs above.'
+    );
+    // Switch to the type tab to show the generated extension
+    setActiveTab('type');
   };
 
   // Import extension
@@ -168,7 +177,7 @@ const ExtensionBuilder: React.FC = () => {
         const data = JSON.parse(e.target?.result as string);
         setExtensionData(data);
         toast.success('Extension imported successfully!');
-      } catch (error) {
+      } catch {
         toast.error('Failed to import extension: Invalid JSON');
       }
     };
@@ -178,12 +187,18 @@ const ExtensionBuilder: React.FC = () => {
   // Get extension type icon
   const getTypeIcon = (type: string) => {
     switch (type) {
-      case 'inline_python': return <Code className="h-4 w-4" />;
-      case 'frontend': return <Globe className="h-4 w-4" />;
-      case 'stdio': return <Terminal className="h-4 w-4" />;
-      case 'sse': return <Zap className="h-4 w-4" />;
-      case 'streamable_http': return <Globe className="h-4 w-4" />;
-      default: return <FileCode className="h-4 w-4" />;
+      case 'inline_python':
+        return <Code className="h-4 w-4" />;
+      case 'frontend':
+        return <Globe className="h-4 w-4" />;
+      case 'stdio':
+        return <Terminal className="h-4 w-4" />;
+      case 'sse':
+        return <Zap className="h-4 w-4" />;
+      case 'streamable_http':
+        return <Globe className="h-4 w-4" />;
+      default:
+        return <FileCode className="h-4 w-4" />;
     }
   };
 
@@ -207,16 +222,16 @@ const ExtensionBuilder: React.FC = () => {
             Create, test, and deploy custom extensions for Goose
           </p>
         </div>
-        
+
         <div className="flex items-center gap-3">
           <Badge variant="outline" className="flex items-center gap-2">
             {getTypeIcon(extensionData.type)}
             {extensionData.type.replace('_', ' ').toUpperCase()}
           </Badge>
-          
+
           {testResult && (
-            <Badge 
-              variant={testResult.success ? "default" : "destructive"}
+            <Badge
+              variant={testResult.success ? 'default' : 'destructive'}
               className="flex items-center gap-2"
             >
               {getTestResultIcon()}
@@ -236,19 +251,25 @@ const ExtensionBuilder: React.FC = () => {
                 <Settings className="h-5 w-5" />
                 Extension Configuration
               </CardTitle>
-              <CardDescription>
-                Configure your extension type, code, and tools
-              </CardDescription>
+              <CardDescription>Configure your extension type, code, and tools</CardDescription>
             </CardHeader>
             <CardContent>
               <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                <TabsList className="grid w-full grid-cols-5">
+                <TabsList className="grid w-full grid-cols-6">
+                  <TabsTrigger value="ai" className="flex items-center gap-1">
+                    <Sparkles className="h-3 w-3" />
+                    AI
+                  </TabsTrigger>
                   <TabsTrigger value="type">Type</TabsTrigger>
                   <TabsTrigger value="code">Code</TabsTrigger>
                   <TabsTrigger value="tools">Tools</TabsTrigger>
                   <TabsTrigger value="deps">Dependencies</TabsTrigger>
                   <TabsTrigger value="config">Config</TabsTrigger>
                 </TabsList>
+
+                <TabsContent value="ai" className="mt-6">
+                  <AIExtensionGenerator onExtensionGenerated={handleExtensionGenerated} />
+                </TabsContent>
 
                 <TabsContent value="type" className="mt-6">
                   <ExtensionTypeSelector
@@ -300,7 +321,7 @@ const ExtensionBuilder: React.FC = () => {
                         max="3600"
                       />
                     </div>
-                    
+
                     {extensionData.type === 'stdio' && (
                       <div>
                         <label className="block text-sm font-medium text-textStandard mb-2">
@@ -315,7 +336,7 @@ const ExtensionBuilder: React.FC = () => {
                         />
                       </div>
                     )}
-                    
+
                     {extensionData.type === 'sse' && (
                       <div>
                         <label className="block text-sm font-medium text-textStandard mb-2">
@@ -346,9 +367,7 @@ const ExtensionBuilder: React.FC = () => {
                 <TestTube className="h-5 w-5" />
                 Test Extension
               </CardTitle>
-              <CardDescription>
-                Validate your extension before saving
-              </CardDescription>
+              <CardDescription>Validate your extension before saving</CardDescription>
             </CardHeader>
             <CardContent>
               <ExtensionTester
@@ -367,9 +386,7 @@ const ExtensionBuilder: React.FC = () => {
                 <Save className="h-5 w-5" />
                 Actions
               </CardTitle>
-              <CardDescription>
-                Save, export, or import extensions
-              </CardDescription>
+              <CardDescription>Save, export, or import extensions</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <Button
@@ -398,10 +415,7 @@ const ExtensionBuilder: React.FC = () => {
                   onChange={importExtension}
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                 />
-                <Button
-                  variant="outline"
-                  className="w-full"
-                >
+                <Button variant="outline" className="w-full">
                   <Upload className="h-4 w-4 mr-2" />
                   Import Extension
                 </Button>
@@ -416,9 +430,7 @@ const ExtensionBuilder: React.FC = () => {
                 <FileCode className="h-5 w-5" />
                 Extension Preview
               </CardTitle>
-              <CardDescription>
-                Preview your extension configuration
-              </CardDescription>
+              <CardDescription>Preview your extension configuration</CardDescription>
             </CardHeader>
             <CardContent>
               <ExtensionExporter extensionData={extensionData} />

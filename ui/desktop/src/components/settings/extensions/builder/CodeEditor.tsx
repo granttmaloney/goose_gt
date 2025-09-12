@@ -2,16 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../../ui/card';
 import { Button } from '../../../ui/button';
 import { Badge } from '../../../ui/badge';
-import { 
-  Code, 
-  Copy, 
-  Download, 
-  Upload, 
-  Play, 
-  FileText,
-  Lightbulb,
-  AlertCircle
-} from 'lucide-react';
+import { Code, Copy, Download, Upload, FileText, Lightbulb, AlertCircle } from 'lucide-react';
 
 interface CodeEditorProps {
   code: string;
@@ -20,12 +11,7 @@ interface CodeEditorProps {
   onChange: (code: string) => void;
 }
 
-const CodeEditor: React.FC<CodeEditorProps> = ({
-  code,
-  language,
-  extensionType,
-  onChange
-}) => {
+const CodeEditor: React.FC<CodeEditorProps> = ({ code, language, extensionType, onChange }) => {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -178,7 +164,7 @@ done`;
         'Import required packages at the top',
         'Define tools as dictionaries with name, description, and inputSchema',
         'Implement tool functions that return results',
-        'Use type hints for better code clarity'
+        'Use type hints for better code clarity',
       ];
     } else if (language === 'json') {
       return [
@@ -186,7 +172,7 @@ done`;
         'Define tools in the tools array',
         'Include proper inputSchema for each tool',
         'Use descriptive names and descriptions',
-        'Validate your JSON before saving'
+        'Validate your JSON before saving',
       ];
     }
     return [];
@@ -203,37 +189,23 @@ done`;
           <h3 className="text-lg font-semibold text-textStandard">Code Editor</h3>
           <Badge variant="outline">{language.toUpperCase()}</Badge>
         </div>
-        
+
         <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => onChange(getTemplateCode())}
-          >
+          <Button variant="outline" size="sm" onClick={() => onChange(getTemplateCode())}>
             <FileText className="h-4 w-4 mr-2" />
             Load Template
           </Button>
-          
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={copyCode}
-            disabled={!code}
-          >
+
+          <Button variant="outline" size="sm" onClick={copyCode} disabled={!code}>
             <Copy className="h-4 w-4 mr-2" />
             Copy
           </Button>
-          
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={downloadCode}
-            disabled={!code}
-          >
+
+          <Button variant="outline" size="sm" onClick={downloadCode} disabled={!code}>
             <Download className="h-4 w-4 mr-2" />
             Download
           </Button>
-          
+
           <div className="relative">
             <input
               type="file"
@@ -254,11 +226,7 @@ done`;
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
             <CardTitle className="text-base">Extension Code</CardTitle>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setIsFullscreen(!isFullscreen)}
-            >
+            <Button variant="ghost" size="sm" onClick={() => setIsFullscreen(!isFullscreen)}>
               {isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
             </Button>
           </div>
@@ -266,7 +234,7 @@ done`;
             Write your extension code here. Use the template button to get started.
           </CardDescription>
         </CardHeader>
-        
+
         <CardContent>
           <div className="relative">
             <textarea
@@ -277,7 +245,7 @@ done`;
               placeholder={`Enter your ${language} code here...`}
               spellCheck={false}
             />
-            
+
             {/* Line numbers */}
             <div className="absolute left-0 top-0 bottom-0 w-12 bg-gray-100 dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 rounded-l-lg flex flex-col text-xs text-gray-500 dark:text-gray-400 font-mono">
               {code.split('\n').map((_, index) => (
@@ -316,7 +284,7 @@ done`;
       <div className="flex items-center gap-4 text-sm text-textSubtle">
         <span>Lines: {code.split('\n').length}</span>
         <span>Characters: {code.length}</span>
-        <span>Words: {code.split(/\s+/).filter(word => word.length > 0).length}</span>
+        <span>Words: {code.split(/\s+/).filter((word) => word.length > 0).length}</span>
       </div>
     </div>
   );

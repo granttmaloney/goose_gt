@@ -99,7 +99,7 @@ export default function ExtensionsView({
             key={refreshKey}
             deepLinkConfig={viewOptions.deepLinkConfig}
             showEnvVars={viewOptions.showEnvVars}
-            hideButtons={true}
+            hideButtons={false}
           />
         </div>
 

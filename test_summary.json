@@ -1,0 +1,180 @@
+{
+  "file_info": {
+    "file_path": "sample_data.csv",
+    "file_size_kb": 0.77
+  },
+  "data_summary": {
+    "basic_info": {
+      "total_rows": 20,
+      "total_columns": 6,
+      "column_names": [
+        "name",
+        "age",
+        "salary",
+        "department",
+        "experience_years",
+        "performance_score"
+      ],
+      "file_size_kb": 0.77
+    },
+    "column_statistics": {
+      "name": {
+        "total_values": 20,
+        "non_empty_values": 20,
+        "empty_values": 0,
+        "unique_values": 20,
+        "is_numeric": false,
+        "sample_values": [
+          "John Doe",
+          "Jane Smith",
+          "Bob Johnson",
+          "Alice Brown",
+          "Charlie Wilson"
+        ],
+        "most_common": {
+          "John Doe": 1,
+          "Jane Smith": 1,
+          "Bob Johnson": 1,
+          "Alice Brown": 1,
+          "Charlie Wilson": 1
+        }
+      },
+      "age": {
+        "total_values": 20,
+        "non_empty_values": 20,
+        "empty_values": 0,
+        "unique_values": 17,
+        "is_numeric": true,
+        "sample_values": [
+          "28",
+          "32",
+          "45",
+          "29",
+          "38"
+        ],
+        "min": 26,
+        "max": 45,
+        "mean": 34.3,
+        "median": 33.0,
+        "mode": 28,
+        "std_dev": 5.9833101206606365
+      },
+      "salary": {
+        "total_values": 20,
+        "non_empty_values": 20,
+        "empty_values": 0,
+        "unique_values": 20,
+        "is_numeric": true,
+        "sample_values": [
+          "75000",
+          "82000",
+          "95000",
+          "68000",
+          "88000"
+        ],
+        "min": 62000,
+        "max": 95000,
+        "mean": 80350,
+        "median": 79500.0,
+        "mode": null,
+        "std_dev": 9642.422713689422
+      },
+      "department": {
+        "total_values": 20,
+        "non_empty_values": 20,
+        "empty_values": 0,
+        "unique_values": 3,
+        "is_numeric": false,
+        "sample_values": [
+          "Engineering",
+          "Marketing",
+          "Engineering",
+          "Sales",
+          "Engineering"
+        ],
+        "most_common": {
+          "Engineering": 8,
+          "Marketing": 6,
+          "Sales": 6
+        }
+      },
+      "experience_years": {
+        "total_values": 20,
+        "non_empty_values": 20,
+        "empty_values": 0,
+        "unique_values": 13,
+        "is_numeric": true,
+        "sample_values": [
+          "3",
+          "5",
+          "12",
+          "2",
+          "8"
+        ],
+        "min": 1,
+        "max": 13,
+        "mean": 6.3,
+        "median": 5.5,
+        "mode": 3,
+        "std_dev": 3.657724342869628
+      },
+      "performance_score": {
+        "total_values": 20,
+        "non_empty_values": 20,
+        "empty_values": 0,
+        "unique_values": 13,
+        "is_numeric": true,
+        "sample_values": [
+          "85",
+          "92",
+          "78",
+          "88",
+          "91"
+        ],
+        "min": 78,
+        "max": 92,
+        "mean": 85.9,
+        "median": 86.0,
+        "mode": 85,
+        "std_dev": 3.6548453779663657
+      }
+    },
+    "data_quality": {
+      "columns_with_missing_data": [],
+      "columns_with_all_data": [
+        "name",
+        "age",
+        "salary",
+        "department",
+        "experience_years",
+        "performance_score"
+      ],
+      "duplicate_rows": 0
+    }
+  },
+  "visualization_recommendations": {
+    "recommended_visualizations": [
+      "scatter_plot",
+      "correlation_matrix",
+      "histogram",
+      "box_plot",
+      "line_chart",
+      "bar_chart",
+      "pie_chart",
+      "grouped_bar_chart"
+    ],
+    "data_characteristics": {
+      "numeric_columns": [
+        "age",
+        "salary",
+        "experience_years",
+        "performance_score"
+      ],
+      "categorical_columns": [
+        "name",
+        "department"
+      ],
+      "data_size": "small"
+    }
+  }
+}

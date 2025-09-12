@@ -1,0 +1,13 @@
+{
+  "type": "stdio",
+  "name": "test-uv-extension",
+  "description": "Test extension using uv for Python execution",
+  "cmd": "uv",
+  "args": [
+    "run",
+    "python",
+    "-c",
+    "import json, sys; print(json.dumps({'message': 'Hello from uv!', 'python_version': sys.version}))"
+  ],
+  "timeout": 30
+}

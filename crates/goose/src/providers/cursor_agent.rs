@@ -267,7 +267,7 @@ impl CursorAgentProvider {
 
         // Only pass model parameter if it's in the known models list
         if CURSOR_AGENT_KNOWN_MODELS.contains(&self.model.model_name.as_str()) {
-            cmd.arg("-m").arg(&self.model.model_name);
+            cmd.arg("--model").arg(&self.model.model_name);
         }
 
         cmd.arg("-p")

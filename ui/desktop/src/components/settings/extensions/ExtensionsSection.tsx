@@ -203,7 +203,7 @@ export default function ExtensionsSection({
         />
 
         {!hideButtons && (
-          <div className="flex gap-4 pt-4 w-full">
+          <div className="flex gap-4 pt-4 w-full flex-wrap">
             <Button
               className="flex items-center gap-2 justify-center"
               variant="default"

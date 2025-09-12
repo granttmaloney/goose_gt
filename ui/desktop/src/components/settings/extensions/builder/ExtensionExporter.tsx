@@ -1,16 +1,8 @@
 import React, { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../../ui/card';
 import { Button } from '../../../ui/button';
-import { Badge } from '../../../ui/badge';
-import { 
-  FileCode, 
-  Copy, 
-  Download, 
-  Eye, 
-  EyeOff,
-  CheckCircle,
-  Info
-} from 'lucide-react';
+// import { Badge } from '../../../ui/badge';
+import { FileCode, Copy, Download, Eye, EyeOff, CheckCircle, Info } from 'lucide-react';
 import { ExtensionBuilderData } from '../ExtensionBuilder';
 
 interface ExtensionExporterProps {
@@ -23,13 +15,13 @@ const ExtensionExporter: React.FC<ExtensionExporterProps> = ({ extensionData }) 
 
   // Generate the extension configuration
   const generateExtensionConfig = () => {
-    const config: any = {
+    const config: Record<string, unknown> = {
       name: extensionData.name,
       description: extensionData.description,
       type: extensionData.type,
       timeout: extensionData.timeout,
       bundled: false,
-      available_tools: extensionData.tools.map(tool => tool.name)
+      available_tools: extensionData.tools.map((tool) => tool.name),
     };
 
     // Add type-specific configuration
@@ -45,28 +37,40 @@ const ExtensionExporter: React.FC<ExtensionExporterProps> = ({ extensionData }) 
       case 'stdio':
         config.cmd = extensionData.cmd;
         config.args = extensionData.args || [];
-        config.envs = extensionData.envVars.reduce((acc, env) => {
-          acc[env.key] = env.value;
-          return acc;
-        }, {} as Record<string, string>);
+        config.envs = extensionData.envVars.reduce(
+          (acc, env) => {
+            acc[env.key] = env.value;
+            return acc;
+          },
+          {} as Record<string, string>
+        );
         break;
       case 'sse':
         config.uri = extensionData.endpoint;
-        config.envs = extensionData.envVars.reduce((acc, env) => {
-          acc[env.key] = env.value;
-          return acc;
-        }, {} as Record<string, string>);
+        config.envs = extensionData.envVars.reduce(
+          (acc, env) => {
+            acc[env.key] = env.value;
+            return acc;
+          },
+          {} as Record<string, string>
+        );
         break;
       case 'streamable_http':
         config.uri = extensionData.endpoint;
-        config.headers = extensionData.headers.reduce((acc, header) => {
-          acc[header.key] = header.value;
-          return acc;
-        }, {} as Record<string, string>);
-        config.envs = extensionData.envVars.reduce((acc, env) => {
-          acc[env.key] = env.value;
-          return acc;
-        }, {} as Record<string, string>);
+        config.headers = extensionData.headers.reduce(
+          (acc, header) => {
+            acc[header.key] = header.value;
+            return acc;
+          },
+          {} as Record<string, string>
+        );
+        config.envs = extensionData.envVars.reduce(
+          (acc, env) => {
+            acc[env.key] = env.value;
+            return acc;
+          },
+          {} as Record<string, string>
+        );
         break;
     }
 
@@ -82,8 +86,8 @@ const ExtensionExporter: React.FC<ExtensionExporterProps> = ({ extensionData }) 
         version: '1.0.0',
         created: new Date().toISOString(),
         author: 'User',
-        description: extensionData.description
-      }
+        description: extensionData.description,
+      },
     };
   };
 
@@ -121,37 +125,37 @@ const ExtensionExporter: React.FC<ExtensionExporterProps> = ({ extensionData }) 
         return {
           name: 'Inline Python',
           description: 'Python code executed with uvx',
-          icon: '🐍'
+          icon: '🐍',
         };
       case 'frontend':
         return {
           name: 'Frontend Extension',
           description: 'Browser-based tools',
-          icon: '🌐'
+          icon: '🌐',
         };
       case 'stdio':
         return {
           name: 'Command Line Tool',
           description: 'External executable integration',
-          icon: '⚡'
+          icon: '⚡',
         };
       case 'sse':
         return {
           name: 'Server-Sent Events',
           description: 'Real-time data streaming',
-          icon: '📡'
+          icon: '📡',
         };
       case 'streamable_http':
         return {
           name: 'HTTP API',
           description: 'REST API integration',
-          icon: '🔗'
+          icon: '🔗',
         };
       default:
         return {
           name: 'Unknown',
           description: 'Unknown extension type',
-          icon: '❓'
+          icon: '❓',
         };
     }
   };
@@ -171,7 +175,7 @@ const ExtensionExporter: React.FC<ExtensionExporterProps> = ({ extensionData }) 
             <p className="text-sm text-textSubtle">{typeInfo.name}</p>
           </div>
         </div>
-        
+
         <div className="grid grid-cols-2 gap-4 text-sm">
           <div>
             <span className="font-medium text-textStandard">Tools:</span>
@@ -194,15 +198,11 @@ const ExtensionExporter: React.FC<ExtensionExporterProps> = ({ extensionData }) 
 
       {/* Export Options */}
       <div className="flex items-center gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setShowJson(!showJson)}
-        >
+        <Button variant="outline" size="sm" onClick={() => setShowJson(!showJson)}>
           {showJson ? <EyeOff className="h-4 w-4 mr-2" /> : <Eye className="h-4 w-4 mr-2" />}
           {showJson ? 'Hide JSON' : 'Show JSON'}
         </Button>
-        
+
         <Button
           variant="outline"
           size="sm"
@@ -211,14 +211,16 @@ const ExtensionExporter: React.FC<ExtensionExporterProps> = ({ extensionData }) 
           {copied ? <CheckCircle className="h-4 w-4 mr-2" /> : <Copy className="h-4 w-4 mr-2" />}
           {copied ? 'Copied!' : 'Copy Config'}
         </Button>
-        
+
         <Button
           variant="outline"
           size="sm"
-          onClick={() => downloadAsFile(
-            JSON.stringify(extensionConfig, null, 2),
-            `${extensionData.name || 'extension'}-config.json`
-          )}
+          onClick={() =>
+            downloadAsFile(
+              JSON.stringify(extensionConfig, null, 2),
+              `${extensionData.name || 'extension'}-config.json`
+            )
+          }
         >
           <Download className="h-4 w-4 mr-2" />
           Download Config
@@ -252,9 +254,7 @@ const ExtensionExporter: React.FC<ExtensionExporterProps> = ({ extensionData }) 
             <Download className="h-4 w-4" />
             Export Package
           </CardTitle>
-          <CardDescription>
-            Export the complete extension package for sharing
-          </CardDescription>
+          <CardDescription>Export the complete extension package for sharing</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex items-center gap-2">
@@ -266,28 +266,31 @@ const ExtensionExporter: React.FC<ExtensionExporterProps> = ({ extensionData }) 
               <Copy className="h-4 w-4 mr-2" />
               Copy Package
             </Button>
-            
+
             <Button
               variant="outline"
               size="sm"
-              onClick={() => downloadAsFile(
-                JSON.stringify(extensionPackage, null, 2),
-                `${extensionData.name || 'extension'}-package.json`
-              )}
+              onClick={() =>
+                downloadAsFile(
+                  JSON.stringify(extensionPackage, null, 2),
+                  `${extensionData.name || 'extension'}-package.json`
+                )
+              }
             >
               <Download className="h-4 w-4 mr-2" />
               Download Package
             </Button>
           </div>
-          
+
           <div className="p-3 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg">
             <div className="flex items-start gap-2">
               <Info className="h-4 w-4 text-blue-600 dark:text-blue-400 mt-0.5" />
               <div className="text-sm text-blue-800 dark:text-blue-200">
                 <p className="font-medium mb-1">Sharing Extensions</p>
                 <p>
-                  The extension package includes all configuration, tools, and metadata needed to share your extension with others. 
-                  Recipients can import this file to use your extension in their Goose installation.
+                  The extension package includes all configuration, tools, and metadata needed to
+                  share your extension with others. Recipients can import this file to use your
+                  extension in their Goose installation.
                 </p>
               </div>
             </div>
@@ -299,37 +302,45 @@ const ExtensionExporter: React.FC<ExtensionExporterProps> = ({ extensionData }) 
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Installation Instructions</CardTitle>
-          <CardDescription>
-            How to install this extension in Goose
-          </CardDescription>
+          <CardDescription>How to install this extension in Goose</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-3 text-sm">
             <div>
               <h5 className="font-medium text-textStandard mb-1">Method 1: Import Package</h5>
               <p className="text-textSubtle">
-                1. Download the extension package above<br/>
-                2. In Goose, go to Extensions → Import Extension<br/>
-                3. Select the downloaded package file<br/>
+                1. Download the extension package above
+                <br />
+                2. In Goose, go to Extensions → Import Extension
+                <br />
+                3. Select the downloaded package file
+                <br />
                 4. The extension will be automatically installed and configured
               </p>
             </div>
-            
+
             <div>
               <h5 className="font-medium text-textStandard mb-1">Method 2: Manual Configuration</h5>
               <p className="text-textSubtle">
-                1. Copy the extension configuration JSON above<br/>
-                2. In Goose, go to Extensions → Add Custom Extension<br/>
-                3. Paste the configuration in the JSON editor<br/>
+                1. Copy the extension configuration JSON above
+                <br />
+                2. In Goose, go to Extensions → Add Custom Extension
+                <br />
+                3. Paste the configuration in the JSON editor
+                <br />
                 4. Save the extension
               </p>
             </div>
-            
+
             <div>
               <h5 className="font-medium text-textStandard mb-1">Method 3: CLI Installation</h5>
               <p className="text-textSubtle">
-                1. Save the configuration to a file (e.g., extension.json)<br/>
-                2. Run: <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">goose extension add extension.json</code>
+                1. Save the configuration to a file (e.g., extension.json)
+                <br />
+                2. Run:{' '}
+                <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">
+                  goose extension add extension.json
+                </code>
               </p>
             </div>
           </div>

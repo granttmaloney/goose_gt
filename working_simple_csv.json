@@ -1,0 +1,13 @@
+{
+  "type": "stdio",
+  "name": "csv-summarizer",
+  "description": "Analyzes CSV files and generates basic statistical summaries using standard library only",
+  "cmd": "uv",
+  "args": [
+    "run",
+    "python",
+    "-c",
+    "import csv, json, sys; f = open(sys.argv[1], 'r'); reader = csv.DictReader(f); data = list(reader); f.close(); print(json.dumps({'rows': len(data), 'columns': len(data[0]) if data else 0}))"
+  ],
+  "timeout": 30
+}

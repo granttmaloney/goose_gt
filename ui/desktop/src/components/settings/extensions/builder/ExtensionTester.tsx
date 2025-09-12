@@ -2,16 +2,15 @@ import React, { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../../ui/card';
 import { Button } from '../../../ui/button';
 import { Badge } from '../../../ui/badge';
-import { 
-  Play, 
-  CheckCircle, 
-  XCircle, 
-  AlertTriangle, 
-  Clock, 
+import {
+  Play,
+  CheckCircle,
+  XCircle,
+  AlertTriangle,
   Code,
   Settings,
   TestTube,
-  Loader2
+  Loader2,
 } from 'lucide-react';
 import { ExtensionBuilderData, TestResult } from '../ExtensionBuilder';
 
@@ -26,7 +25,7 @@ const ExtensionTester: React.FC<ExtensionTesterProps> = ({
   extensionData,
   testResult,
   isTesting,
-  onTest
+  onTest,
 }) => {
   const [showDetails, setShowDetails] = useState(false);
 
@@ -50,7 +49,10 @@ const ExtensionTester: React.FC<ExtensionTesterProps> = ({
       errors.push('Command is required for stdio extensions');
     }
 
-    if ((extensionData.type === 'sse' || extensionData.type === 'streamable_http') && !extensionData.endpoint?.trim()) {
+    if (
+      (extensionData.type === 'sse' || extensionData.type === 'streamable_http') &&
+      !extensionData.endpoint?.trim()
+    ) {
       errors.push('Endpoint URL is required for HTTP extensions');
     }
 
@@ -73,7 +75,7 @@ const ExtensionTester: React.FC<ExtensionTesterProps> = ({
 
     return {
       isValid: errors.length === 0,
-      errors
+      errors,
     };
   };
 
@@ -139,17 +141,18 @@ const ExtensionTester: React.FC<ExtensionTesterProps> = ({
           <div>
             <h4 className="font-medium text-textStandard">Test Status</h4>
             <p className="text-sm text-textSubtle">
-              {testStatus === 'testing' ? 'Running tests...' : 
-               testStatus === 'passed' ? 'All tests passed successfully' :
-               testStatus === 'failed' ? 'Tests failed - check details below' :
-               'Click "Test Extension" to validate your extension'}
+              {testStatus === 'testing'
+                ? 'Running tests...'
+                : testStatus === 'passed'
+                  ? 'All tests passed successfully'
+                  : testStatus === 'failed'
+                    ? 'Tests failed - check details below'
+                    : 'Click "Test Extension" to validate your extension'}
             </p>
           </div>
         </div>
-        
-        <Badge className={getStatusColor()}>
-          {getStatusText()}
-        </Badge>
+
+        <Badge className={getStatusColor()}>{getStatusText()}</Badge>
       </div>
 
       {/* Test Button */}
@@ -157,7 +160,7 @@ const ExtensionTester: React.FC<ExtensionTesterProps> = ({
         onClick={onTest}
         disabled={isTesting || !validation.isValid}
         className="w-full"
-        variant={validation.isValid ? "default" : "outline"}
+        variant={validation.isValid ? 'default' : 'outline'}
       >
         {isTesting ? (
           <>
@@ -180,14 +183,15 @@ const ExtensionTester: React.FC<ExtensionTesterProps> = ({
               <AlertTriangle className="h-4 w-4" />
               Validation Errors
             </CardTitle>
-            <CardDescription>
-              Fix these issues before testing your extension
-            </CardDescription>
+            <CardDescription>Fix these issues before testing your extension</CardDescription>
           </CardHeader>
           <CardContent>
             <ul className="space-y-2">
               {validation.errors.map((error, index) => (
-                <li key={index} className="flex items-start gap-2 text-sm text-red-700 dark:text-red-300">
+                <li
+                  key={index}
+                  className="flex items-start gap-2 text-sm text-red-700 dark:text-red-300"
+                >
                   <XCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
                   <span>{error}</span>
                 </li>
@@ -199,7 +203,13 @@ const ExtensionTester: React.FC<ExtensionTesterProps> = ({
 
       {/* Test Results */}
       {testResult && (
-        <Card className={testResult.success ? 'border-green-200 dark:border-green-800' : 'border-red-200 dark:border-red-800'}>
+        <Card
+          className={
+            testResult.success
+              ? 'border-green-200 dark:border-green-800'
+              : 'border-red-200 dark:border-red-800'
+          }
+        >
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
               {testResult.success ? (
@@ -210,7 +220,9 @@ const ExtensionTester: React.FC<ExtensionTesterProps> = ({
               Test Results
             </CardTitle>
             <CardDescription>
-              {testResult.success ? 'Extension validation completed successfully' : 'Extension validation failed'}
+              {testResult.success
+                ? 'Extension validation completed successfully'
+                : 'Extension validation failed'}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -236,7 +248,10 @@ const ExtensionTester: React.FC<ExtensionTesterProps> = ({
                 <h5 className="font-medium text-red-600 dark:text-red-400 mb-2">Errors:</h5>
                 <ul className="space-y-1">
                   {testResult.errors.map((error, index) => (
-                    <li key={index} className="text-sm text-red-700 dark:text-red-300 flex items-start gap-2">
+                    <li
+                      key={index}
+                      className="text-sm text-red-700 dark:text-red-300 flex items-start gap-2"
+                    >
                       <XCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
                       <span>{error}</span>
                     </li>
@@ -251,7 +266,10 @@ const ExtensionTester: React.FC<ExtensionTesterProps> = ({
                 <h5 className="font-medium text-yellow-600 dark:text-yellow-400 mb-2">Warnings:</h5>
                 <ul className="space-y-1">
                   {testResult.warnings.map((warning, index) => (
-                    <li key={index} className="text-sm text-yellow-700 dark:text-yellow-300 flex items-start gap-2">
+                    <li
+                      key={index}
+                      className="text-sm text-yellow-700 dark:text-yellow-300 flex items-start gap-2"
+                    >
                       <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
                       <span>{warning}</span>
                     </li>

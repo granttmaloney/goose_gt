@@ -1,0 +1,62 @@
+{
+  "type": "stdio",
+  "name": "csv_summarizer",
+  "description": "A powerful CSV file summarizer that provides statistical analysis, data insights, and visualization recommendations",
+  "cmd": "python3",
+  "args": ["csv_summarizer_extension_simple.py", "--file"],
+  "timeout": 30,
+  "tools": [
+    {
+      "name": "summarize_csv",
+      "description": "Read a CSV file and generate a comprehensive statistical summary including basic info, data types, missing values, and visualization recommendations",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Path to the CSV file to analyze"
+          },
+          "output_format": {
+            "type": "string",
+            "enum": ["json", "text"],
+            "default": "json",
+            "description": "Format of the output summary (json or text)"
+          },
+          "save_to_file": {
+            "type": "string",
+            "description": "Optional path to save the summary to a file"
+          }
+        },
+        "required": ["file_path"]
+      }
+    },
+    {
+      "name": "get_csv_info",
+      "description": "Get basic information about a CSV file including row count, column names, and data types",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Path to the CSV file"
+          }
+        },
+        "required": ["file_path"]
+      }
+    },
+    {
+      "name": "recommend_visualizations",
+      "description": "Analyze CSV data and recommend appropriate visualizations based on data characteristics",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Path to the CSV file to analyze"
+          }
+        },
+        "required": ["file_path"]
+      }
+    }
+  ]
+}

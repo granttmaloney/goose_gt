@@ -1,20 +1,10 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../../ui/card';
 import { Button } from '../../../ui/button';
 import { Badge } from '../../../ui/badge';
 import { Input } from '../../../ui/input';
 import { Textarea } from '../../../ui/textarea';
-import { 
-  Plus, 
-  Trash2, 
-  Settings, 
-  Code, 
-  Eye,
-  Copy,
-  FileText,
-  AlertCircle,
-  CheckCircle
-} from 'lucide-react';
+import { Plus, Trash2, Settings, Code, Eye, Copy, AlertCircle, CheckCircle } from 'lucide-react';
 import { ToolDefinition } from '../ExtensionBuilder';
 
 interface ToolBuilderProps {
@@ -42,8 +32,8 @@ const ToolBuilder: React.FC<ToolBuilderProps> = ({ tools, onChange }) => {
       inputSchema: {
         type: 'object',
         properties: {},
-        required: []
-      }
+        required: [],
+      },
     };
     onChange([...tools, newTool]);
     setSelectedTool(tools.length);
@@ -74,48 +64,53 @@ const ToolBuilder: React.FC<ToolBuilderProps> = ({ tools, onChange }) => {
       name: '',
       type: 'string',
       description: '',
-      required: false
+      required: false,
     };
-    
+
     const newProperties = {
       ...tool.inputSchema.properties,
       [newProperty.name]: {
         type: newProperty.type,
-        description: newProperty.description
-      }
+        description: newProperty.description,
+      },
     };
-    
+
     updateTool(toolIndex, {
       inputSchema: {
         ...tool.inputSchema,
-        properties: newProperties
-      }
+        properties: newProperties,
+      },
     });
   };
 
   // Update property
-  const updateProperty = (toolIndex: number, propertyName: string, updates: Partial<PropertyDefinition>) => {
+  const updateProperty = (
+    toolIndex: number,
+    propertyName: string,
+    updates: Partial<PropertyDefinition>
+  ) => {
     const tool = tools[toolIndex];
     const newProperties = { ...tool.inputSchema.properties };
-    
+
     if (updates.name && updates.name !== propertyName) {
       // Rename property
       newProperties[updates.name] = newProperties[propertyName];
       delete newProperties[propertyName];
     } else if (updates.type || updates.description) {
       // Update property definition
+      const currentProp = newProperties[propertyName] as { type: string; description?: string };
       newProperties[propertyName] = {
-        ...newProperties[propertyName],
+        ...currentProp,
         ...(updates.type && { type: updates.type }),
-        ...(updates.description && { description: updates.description })
+        ...(updates.description && { description: updates.description }),
       };
     }
-    
+
     updateTool(toolIndex, {
       inputSchema: {
         ...tool.inputSchema,
-        properties: newProperties
-      }
+        properties: newProperties,
+      },
     });
   };
 
@@ -124,15 +119,15 @@ const ToolBuilder: React.FC<ToolBuilderProps> = ({ tools, onChange }) => {
     const tool = tools[toolIndex];
     const newProperties = { ...tool.inputSchema.properties };
     delete newProperties[propertyName];
-    
-    const newRequired = tool.inputSchema.required?.filter(name => name !== propertyName) || [];
-    
+
+    const newRequired = tool.inputSchema.required?.filter((name) => name !== propertyName) || [];
+
     updateTool(toolIndex, {
       inputSchema: {
         ...tool.inputSchema,
         properties: newProperties,
-        required: newRequired
-      }
+        required: newRequired,
+      },
     });
   };
 
@@ -141,14 +136,14 @@ const ToolBuilder: React.FC<ToolBuilderProps> = ({ tools, onChange }) => {
     const tool = tools[toolIndex];
     const isRequired = tool.inputSchema.required?.includes(propertyName) || false;
     const newRequired = isRequired
-      ? tool.inputSchema.required?.filter(name => name !== propertyName) || []
+      ? tool.inputSchema.required?.filter((name) => name !== propertyName) || []
       : [...(tool.inputSchema.required || []), propertyName];
-    
+
     updateTool(toolIndex, {
       inputSchema: {
         ...tool.inputSchema,
-        required: newRequired
-      }
+        required: newRequired,
+      },
     });
   };
 
@@ -157,7 +152,7 @@ const ToolBuilder: React.FC<ToolBuilderProps> = ({ tools, onChange }) => {
     const tool = tools[index];
     const newTool = {
       ...tool,
-      name: `${tool.name}_copy`
+      name: `${tool.name}_copy`,
     };
     onChange([...tools, newTool]);
   };
@@ -172,7 +167,7 @@ const ToolBuilder: React.FC<ToolBuilderProps> = ({ tools, onChange }) => {
     }
     return {
       isValid: errors.length === 0,
-      errors
+      errors,
     };
   };
 
@@ -186,17 +181,13 @@ const ToolBuilder: React.FC<ToolBuilderProps> = ({ tools, onChange }) => {
             Define the tools that your extension will provide to the AI agent
           </p>
         </div>
-        
+
         <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowJsonEditor(!showJsonEditor)}
-          >
+          <Button variant="outline" size="sm" onClick={() => setShowJsonEditor(!showJsonEditor)}>
             {showJsonEditor ? <Eye className="h-4 w-4 mr-2" /> : <Code className="h-4 w-4 mr-2" />}
             {showJsonEditor ? 'Visual Editor' : 'JSON Editor'}
           </Button>
-          
+
           <Button onClick={addTool} size="sm">
             <Plus className="h-4 w-4 mr-2" />
             Add Tool
@@ -211,9 +202,7 @@ const ToolBuilder: React.FC<ToolBuilderProps> = ({ tools, onChange }) => {
             <CardContent className="py-8 text-center">
               <Settings className="h-12 w-12 text-gray-400 mx-auto mb-4" />
               <h3 className="text-lg font-semibold text-textStandard mb-2">No Tools Defined</h3>
-              <p className="text-textSubtle mb-4">
-                Add tools to define what your extension can do
-              </p>
+              <p className="text-textSubtle mb-4">Add tools to define what your extension can do</p>
               <Button onClick={addTool}>
                 <Plus className="h-4 w-4 mr-2" />
                 Add Your First Tool
@@ -238,21 +227,17 @@ const ToolBuilder: React.FC<ToolBuilderProps> = ({ tools, onChange }) => {
                           <AlertCircle className="h-4 w-4 text-red-500" />
                         )}
                       </div>
-                      
-                      <Badge variant={validation.isValid ? "default" : "destructive"}>
+
+                      <Badge variant={validation.isValid ? 'default' : 'destructive'}>
                         {validation.isValid ? 'Valid' : `${validation.errors.length} errors`}
                       </Badge>
                     </div>
-                    
+
                     <div className="flex items-center gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => copyTool(index)}
-                      >
+                      <Button variant="ghost" size="sm" onClick={() => copyTool(index)}>
                         <Copy className="h-4 w-4" />
                       </Button>
-                      
+
                       <Button
                         variant="ghost"
                         size="sm"
@@ -260,7 +245,7 @@ const ToolBuilder: React.FC<ToolBuilderProps> = ({ tools, onChange }) => {
                       >
                         <Settings className="h-4 w-4" />
                       </Button>
-                      
+
                       <Button
                         variant="ghost"
                         size="sm"
@@ -271,12 +256,10 @@ const ToolBuilder: React.FC<ToolBuilderProps> = ({ tools, onChange }) => {
                       </Button>
                     </div>
                   </div>
-                  
-                  {tool.description && (
-                    <CardDescription>{tool.description}</CardDescription>
-                  )}
+
+                  {tool.description && <CardDescription>{tool.description}</CardDescription>}
                 </CardHeader>
-                
+
                 {selectedTool === index && (
                   <CardContent className="space-y-4">
                     {/* Tool Basic Info */}
@@ -291,7 +274,7 @@ const ToolBuilder: React.FC<ToolBuilderProps> = ({ tools, onChange }) => {
                           placeholder="my_tool"
                         />
                       </div>
-                      
+
                       <div>
                         <label className="block text-sm font-medium text-textStandard mb-2">
                           Description *
@@ -303,100 +286,119 @@ const ToolBuilder: React.FC<ToolBuilderProps> = ({ tools, onChange }) => {
                         />
                       </div>
                     </div>
-                    
+
                     {/* Properties */}
                     <div>
                       <div className="flex items-center justify-between mb-3">
                         <h5 className="font-medium text-textStandard">Input Properties</h5>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => addProperty(index)}
-                        >
+                        <Button variant="outline" size="sm" onClick={() => addProperty(index)}>
                           <Plus className="h-4 w-4 mr-2" />
                           Add Property
                         </Button>
                       </div>
-                      
+
                       {Object.keys(tool.inputSchema.properties || {}).length === 0 ? (
                         <div className="text-center py-4 text-textSubtle">
-                          No properties defined. Add properties to define the tool's input parameters.
+                          No properties defined. Add properties to define the tool's input
+                          parameters.
                         </div>
                       ) : (
                         <div className="space-y-3">
-                          {Object.entries(tool.inputSchema.properties || {}).map(([propName, propDef]) => (
-                            <div key={propName} className="p-3 border border-gray-200 dark:border-gray-700 rounded-lg">
-                              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                                <div>
-                                  <label className="block text-xs font-medium text-textStandard mb-1">
-                                    Property Name
-                                  </label>
-                                  <Input
-                                    value={propName}
-                                    onChange={(e) => updateProperty(index, propName, { name: e.target.value })}
-                                    placeholder="property_name"
-                                  />
-                                </div>
-                                
-                                <div>
-                                  <label className="block text-xs font-medium text-textStandard mb-1">
-                                    Type
-                                  </label>
-                                  <select
-                                    value={propDef.type}
-                                    onChange={(e) => updateProperty(index, propName, { type: e.target.value })}
-                                    className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-md bg-backgroundStandard text-textStandard"
-                                  >
-                                    <option value="string">String</option>
-                                    <option value="number">Number</option>
-                                    <option value="boolean">Boolean</option>
-                                    <option value="array">Array</option>
-                                    <option value="object">Object</option>
-                                  </select>
-                                </div>
-                                
-                                <div>
-                                  <label className="block text-xs font-medium text-textStandard mb-1">
-                                    Description
-                                  </label>
-                                  <Input
-                                    value={propDef.description || ''}
-                                    onChange={(e) => updateProperty(index, propName, { description: e.target.value })}
-                                    placeholder="Property description"
-                                  />
-                                </div>
-                                
-                                <div className="flex items-end gap-2">
-                                  <label className="flex items-center gap-2">
-                                    <input
-                                      type="checkbox"
-                                      checked={tool.inputSchema.required?.includes(propName) || false}
-                                      onChange={() => toggleRequired(index, propName)}
-                                      className="rounded"
+                          {Object.entries(tool.inputSchema.properties || {}).map(
+                            ([propName, propDef]) => (
+                              <div
+                                key={propName}
+                                className="p-3 border border-gray-200 dark:border-gray-700 rounded-lg"
+                              >
+                                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                                  <div>
+                                    <label className="block text-xs font-medium text-textStandard mb-1">
+                                      Property Name
+                                    </label>
+                                    <Input
+                                      value={propName}
+                                      onChange={(e) =>
+                                        updateProperty(index, propName, { name: e.target.value })
+                                      }
+                                      placeholder="property_name"
                                     />
-                                    <span className="text-xs text-textStandard">Required</span>
-                                  </label>
-                                  
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => removeProperty(index, propName)}
-                                    className="text-red-500 hover:text-red-600"
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
+                                  </div>
+
+                                  <div>
+                                    <label className="block text-xs font-medium text-textStandard mb-1">
+                                      Type
+                                    </label>
+                                    <select
+                                      value={
+                                        (propDef as { type: string; description?: string }).type
+                                      }
+                                      onChange={(e) =>
+                                        updateProperty(index, propName, { type: e.target.value })
+                                      }
+                                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-md bg-backgroundStandard text-textStandard"
+                                    >
+                                      <option value="string">String</option>
+                                      <option value="number">Number</option>
+                                      <option value="boolean">Boolean</option>
+                                      <option value="array">Array</option>
+                                      <option value="object">Object</option>
+                                    </select>
+                                  </div>
+
+                                  <div>
+                                    <label className="block text-xs font-medium text-textStandard mb-1">
+                                      Description
+                                    </label>
+                                    <Input
+                                      value={
+                                        (propDef as { type: string; description?: string })
+                                          .description || ''
+                                      }
+                                      onChange={(e) =>
+                                        updateProperty(index, propName, {
+                                          description: e.target.value,
+                                        })
+                                      }
+                                      placeholder="Property description"
+                                    />
+                                  </div>
+
+                                  <div className="flex items-end gap-2">
+                                    <label className="flex items-center gap-2">
+                                      <input
+                                        type="checkbox"
+                                        checked={
+                                          tool.inputSchema.required?.includes(propName) || false
+                                        }
+                                        onChange={() => toggleRequired(index, propName)}
+                                        className="rounded"
+                                      />
+                                      <span className="text-xs text-textStandard">Required</span>
+                                    </label>
+
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => removeProperty(index, propName)}
+                                      className="text-red-500 hover:text-red-600"
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                          ))}
+                            )
+                          )}
                         </div>
                       )}
                     </div>
-                    
+
                     {/* Validation Errors */}
                     {!validation.isValid && (
                       <div className="p-3 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg">
-                        <h6 className="font-medium text-red-800 dark:text-red-200 mb-2">Validation Errors:</h6>
+                        <h6 className="font-medium text-red-800 dark:text-red-200 mb-2">
+                          Validation Errors:
+                        </h6>
                         <ul className="text-sm text-red-700 dark:text-red-300 space-y-1">
                           {validation.errors.map((error, errorIndex) => (
                             <li key={errorIndex} className="flex items-center gap-2">
@@ -423,9 +425,7 @@ const ToolBuilder: React.FC<ToolBuilderProps> = ({ tools, onChange }) => {
               <Code className="h-4 w-4" />
               JSON Editor
             </CardTitle>
-            <CardDescription>
-              Edit the tools definition as JSON
-            </CardDescription>
+            <CardDescription>Edit the tools definition as JSON</CardDescription>
           </CardHeader>
           <CardContent>
             <Textarea
@@ -434,7 +434,7 @@ const ToolBuilder: React.FC<ToolBuilderProps> = ({ tools, onChange }) => {
                 try {
                   const parsed = JSON.parse(e.target.value);
                   onChange(parsed);
-                } catch (error) {
+                } catch {
                   // Invalid JSON, don't update
                 }
               }}

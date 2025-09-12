@@ -307,11 +307,109 @@ async fn remove_extension(
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/extensions/generate",
+    request_body = GenerateExtensionRequest,
+    responses(
+        (status = 200, description = "Extension generated successfully", body = ExtensionResponse),
+        (status = 400, description = "Bad request"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Extension Management"
+)]
+/// Handler for generating an extension from AI prompt
+async fn generate_extension_from_prompt(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<GenerateExtensionRequest>,
+) -> Result<Json<ExtensionResponse>, StatusCode> {
+    tracing::info!("Received AI extension generation request: {}", request.prompt);
+
+    let agent = state.get_agent().await;
+    
+    // Use a subagent to generate the extension configuration
+    let task_config = goose::agents::TaskConfig::new(agent.provider().await.ok());
+
+    match goose::agents::subagent_handler::run_complete_subagent_task_with_options(
+        format!(
+            "Create a custom extension based on this description: {}\n\nCRITICAL REQUIREMENTS - FOLLOW EXACTLY:\n\n1. For Python stdio extensions, you MUST use this exact format:\n   {{\n     \"type\": \"stdio\",\n     \"name\": \"extension-name\",\n     \"description\": \"Your description here\",\n     \"cmd\": \"uv\",\n     \"args\": [\"run\", \"python\", \"-c\", \"your_python_code_here\"],\n     \"timeout\": 30\n   }}\n\n2. NEVER use 'python' or 'python3' as the cmd - ALWAYS use 'uv'\n3. NEVER use 'command' field - ALWAYS use 'cmd' field\n4. NEVER use 'timeout_ms' - ALWAYS use 'timeout' field\n5. NEVER use pandas or numpy - use only built-in Python libraries (csv, json, statistics, collections)\n6. For Python code, use only standard library imports like: import csv, json, sys, statistics, collections\n\nPYTHON CODE REQUIREMENTS - ABSOLUTELY CRITICAL:\n- Write ONLY the most basic Python code possible\n- NO loops (for, while), NO conditionals (if, else), NO try/except\n- NO list comprehensions, NO dictionary comprehensions\n- NO complex expressions, NO nested statements\n- Use ONLY these statements: import, open, read, print, close\n- Use semicolons (;) to separate statements\n- Use sys.argv[1] for file input\n- Maximum 4 simple statements only\n- Example: import csv, json, sys; f = open(sys.argv[1], 'r'); data = list(csv.DictReader(f)); print(json.dumps({{'rows': len(data)}}))\n\nEXAMPLE for CSV analysis:\n{{\n  \"type\": \"stdio\",\n  \"name\": \"csv-analyzer\",\n  \"description\": \"Analyzes CSV files using standard library\",\n  \"cmd\": \"uv\",\n  \"args\": [\"run\", \"python\", \"-c\", \"import csv, json, sys; f = open(sys.argv[1], 'r'); data = list(csv.DictReader(f)); print(json.dumps({{'rows': len(data)}}))\"],\n  \"timeout\": 30\n}}\n\nABSOLUTELY CRITICAL: Generate ONLY the most basic Python code. NO loops, NO conditionals, NO complex logic. Just import, open, read, print. Nothing else!\n\nReturn ONLY the JSON configuration object, nothing else.",
+            request.prompt
+        ),
+        task_config,
+        true, // return_last_only
+    ).await {
+        Ok(response_text) => {
+
+            // Try to parse the JSON configuration
+            if let Ok(extension_config) = serde_json::from_str::<serde_json::Value>(&response_text) {
+                // Add the extension using the existing add_extension logic
+                let add_response = add_extension(State(state), Json(extension_config)).await;
+                match add_response {
+                    Ok(response) => Ok(response),
+                    Err(e) => {
+                        tracing::error!("Failed to add generated extension: {:?}", e);
+                        Ok(Json(ExtensionResponse {
+                            error: true,
+                            message: Some(format!("Failed to add generated extension: {:?}", e)),
+                        }))
+                    }
+                }
+            } else {
+                // If JSON parsing fails, try to extract JSON from the response
+                let json_start = response_text.find('{');
+                let json_end = response_text.rfind('}');
+                
+                if let (Some(start), Some(end)) = (json_start, json_end) {
+                    let json_str = &response_text[start..=end];
+                    if let Ok(extension_config) = serde_json::from_str::<serde_json::Value>(json_str) {
+                        let add_response = add_extension(State(state), Json(extension_config)).await;
+                        match add_response {
+                            Ok(response) => Ok(response),
+                            Err(e) => {
+                                tracing::error!("Failed to add generated extension: {:?}", e);
+                                Ok(Json(ExtensionResponse {
+                                    error: true,
+                                    message: Some(format!("Failed to add generated extension: {:?}", e)),
+                                }))
+                            }
+                        }
+                    } else {
+                        Ok(Json(ExtensionResponse {
+                            error: true,
+                            message: Some("Failed to parse generated extension configuration. Please try a more specific prompt.".to_string()),
+                        }))
+                    }
+                } else {
+                    Ok(Json(ExtensionResponse {
+                        error: true,
+                        message: Some("Failed to extract extension configuration from AI response. Please try a more specific prompt.".to_string()),
+                    }))
+                }
+            }
+        }
+        Err(e) => {
+            tracing::error!("Failed to generate extension: {:?}", e);
+            Ok(Json(ExtensionResponse {
+                error: true,
+                message: Some(format!("Failed to generate extension: {:?}", e)),
+            }))
+        }
+    }
+}
+
+/// Request structure for AI extension generation
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct GenerateExtensionRequest {
+    /// Natural language description of the desired extension
+    pub prompt: String,
+}
+
 /// Registers the extension management routes with the Axum router.
 pub fn routes(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/extensions/add", post(add_extension))
         .route("/extensions/remove", post(remove_extension))
+        .route("/extensions/generate", post(generate_extension_from_prompt))
         .with_state(state)
 }
 
