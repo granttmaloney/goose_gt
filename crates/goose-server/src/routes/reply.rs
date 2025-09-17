@@ -96,7 +96,7 @@ pub struct SseResponse {
 }
 
 impl SseResponse {
-    fn new(rx: ReceiverStream<String>) -> Self {
+    pub fn new(rx: ReceiverStream<String>) -> Self {
         Self { rx }
     }
 }

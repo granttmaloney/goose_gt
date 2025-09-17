@@ -4,6 +4,7 @@ pub mod config_management;
 pub mod context;
 pub mod extension;
 pub mod health;
+pub mod progress_tracker;
 pub mod recipe;
 pub mod recipe_utils;
 pub mod reply;

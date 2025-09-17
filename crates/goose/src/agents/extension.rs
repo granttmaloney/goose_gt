@@ -49,11 +49,13 @@ pub enum ExtensionError {
     InitializeError(#[from] ClientInitializeError),
     #[error("{0}")]
     ProcessExit(#[from] ProcessExit),
+    #[error("Podman is not available or not installed")]
+    PodmanNotAvailable,
 }
 
 pub type ExtensionResult<T> = Result<T, ExtensionError>;
 
-#[derive(Debug, Clone, Deserialize, Serialize, Default, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default, ToSchema, schemars::JsonSchema)]
 pub struct Envs {
     /// A map of environment variables to set, e.g. API_KEY -> some_secret, HOST -> host
     #[serde(default)]
@@ -142,8 +144,32 @@ impl Envs {
     }
 }
 
+/// Resource limits for Podman containers
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema, schemars::JsonSchema)]
+pub struct PodmanResourceLimits {
+    /// Maximum memory usage in MB
+    #[serde(default)]
+    pub memory_mb: Option<u64>,
+    /// Maximum CPU usage (0.0 to 1.0, where 1.0 = 1 CPU core)
+    #[serde(default)]
+    pub cpu_limit: Option<f64>,
+    /// Maximum execution time in seconds
+    #[serde(default)]
+    pub timeout_seconds: Option<u64>,
+}
+
+impl Default for PodmanResourceLimits {
+    fn default() -> Self {
+        Self {
+            memory_mb: Some(512),      // 512MB default
+            cpu_limit: Some(0.5),      // 0.5 CPU cores default
+            timeout_seconds: Some(30), // 30 seconds default
+        }
+    }
+}
+
 /// Represents the different types of MCP extensions that can be added to the manager
-#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema, schemars::JsonSchema)]
 #[serde(tag = "type")]
 pub enum ExtensionConfig {
     /// Server-sent events client with a URI endpoint
@@ -253,6 +279,32 @@ pub enum ExtensionConfig {
         #[serde(default)]
         available_tools: Vec<String>,
     },
+    /// Podman-based extension that runs Python code in containers
+    #[serde(rename = "podman_python")]
+    PodmanPython {
+        /// The name used to identify this extension
+        name: String,
+        /// The Python code to execute
+        code: String,
+        /// Python dependencies to install
+        #[serde(default)]
+        dependencies: Vec<String>,
+        /// Container image to use (defaults to python:3.11-slim)
+        #[serde(default)]
+        image: Option<String>,
+        /// Resource limits for the container
+        #[serde(default)]
+        resource_limits: Option<PodmanResourceLimits>,
+        /// Whether this extension is bundled with Goose
+        #[serde(default)]
+        bundled: Option<bool>,
+        /// Timeout for the extension execution
+        timeout: Option<u64>,
+        /// Description of the extension
+        description: Option<String>,
+        #[serde(default)]
+        available_tools: Vec<String>,
+    },
 }
 
 impl Default for ExtensionConfig {
@@ -336,6 +388,25 @@ impl ExtensionConfig {
         }
     }
 
+    pub fn podman_python<S: Into<String>, T: Into<u64>>(
+        name: S,
+        code: S,
+        description: S,
+        timeout: T,
+    ) -> Self {
+        Self::PodmanPython {
+            name: name.into(),
+            code: code.into(),
+            description: Some(description.into()),
+            timeout: Some(timeout.into()),
+            dependencies: Vec::new(),
+            image: None,
+            resource_limits: Some(PodmanResourceLimits::default()),
+            bundled: None,
+            available_tools: Vec::new(),
+        }
+    }
+
     pub fn with_args<I, S>(self, args: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -381,6 +452,7 @@ impl ExtensionConfig {
             Self::Builtin { name, .. } => name,
             Self::Frontend { name, .. } => name,
             Self::InlinePython { name, .. } => name,
+            Self::PodmanPython { name, .. } => name,
         }
         .to_string()
     }
@@ -404,6 +476,9 @@ impl ExtensionConfig {
                 available_tools, ..
             }
             | Self::Frontend {
+                available_tools, ..
+            }
+            | Self::PodmanPython {
                 available_tools, ..
             } => available_tools,
         };
@@ -432,6 +507,18 @@ impl std::fmt::Display for ExtensionConfig {
             }
             ExtensionConfig::InlinePython { name, code, .. } => {
                 write!(f, "InlinePython({}: {} chars)", name, code.len())
+            }
+            ExtensionConfig::PodmanPython {
+                name, code, image, ..
+            } => {
+                let image_str = image.as_deref().unwrap_or("python:3.11-slim");
+                write!(
+                    f,
+                    "PodmanPython({}: {} chars, image: {})",
+                    name,
+                    code.len(),
+                    image_str
+                )
             }
         }
     }

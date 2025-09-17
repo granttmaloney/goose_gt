@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Button } from '../../ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../ui/tabs';
@@ -28,6 +28,8 @@ import DependencyManager from './builder/DependencyManager';
 import ExtensionTester from './builder/ExtensionTester';
 import ExtensionExporter from './builder/ExtensionExporter';
 import AIExtensionGenerator from './AIExtensionGenerator';
+import { addToAgent } from './agent-api';
+import { getApiUrl } from '../../../config';
 
 // Types
 export interface ExtensionBuilderData {
@@ -64,6 +66,22 @@ export interface TestResult {
 }
 
 const ExtensionBuilder: React.FC = () => {
+  // Map backend types to builder-supported union
+  const normalizeType = (t: unknown): ExtensionBuilderData['type'] => {
+    switch (t) {
+      case 'podman_python':
+        return 'inline_python';
+      case 'inline_python':
+      case 'frontend':
+      case 'stdio':
+      case 'sse':
+      case 'streamable_http':
+        return t as ExtensionBuilderData['type'];
+      default:
+        return 'inline_python';
+    }
+  };
+
   const [activeTab, setActiveTab] = useState('type');
   const [extensionData, setExtensionData] = useState<ExtensionBuilderData>({
     type: 'inline_python',
@@ -80,6 +98,78 @@ const ExtensionBuilder: React.FC = () => {
   const [testResult, setTestResult] = useState<TestResult | null>(null);
   const [isTesting, setIsTesting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isAdding, setIsAdding] = useState(false);
+
+  // Hydrate builder with last generated extension if present
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem('goose:lastGeneratedExtension');
+      if (raw) {
+        const generated = JSON.parse(raw);
+        const type = normalizeType(generated.type);
+        const name = (generated.name as string) || '';
+        const description = (generated.description as string) || '';
+        const code = (generated.code as string) || '';
+        const cmd = (generated.cmd as string) || undefined;
+        const args = Array.isArray(generated.args) ? generated.args : undefined;
+        const timeout = typeof generated.timeout === 'number' ? generated.timeout : 300;
+        const dependencies = Array.isArray(generated.dependencies) ? generated.dependencies : [];
+
+        setExtensionData((prev) => ({
+          ...prev,
+          type,
+          name,
+          description,
+          code,
+          cmd,
+          args,
+          timeout,
+          dependencies,
+        }));
+        setActiveTab('type');
+      }
+    } catch (e) {
+      console.warn('Failed to hydrate lastGeneratedExtension', e);
+    }
+    // Listen for extension generated broadcasts
+    const handler = (e: CustomEvent<Record<string, unknown>>) => {
+      const detail = e.detail;
+      if (detail && typeof detail === 'object') {
+        console.debug('ExtensionBuilder: received goose:extensionGenerated', detail);
+        const type = normalizeType(detail.type);
+        const name = (detail.name as string) || '';
+        const description = (detail.description as string) || '';
+        const code = (detail.code as string) || '';
+        const cmd = (detail.cmd as string) || undefined;
+        const args = Array.isArray(detail.args) ? detail.args : undefined;
+        const timeout = typeof detail.timeout === 'number' ? detail.timeout : 300;
+        const dependencies = Array.isArray(detail.dependencies) ? detail.dependencies : [];
+
+        setExtensionData((prev) => ({
+          ...prev,
+          type,
+          name,
+          description,
+          code,
+          cmd,
+          args,
+          timeout,
+          dependencies,
+        }));
+        setActiveTab('type');
+      }
+    };
+    window.addEventListener(
+      'goose:extensionGenerated',
+      handler as unknown as (ev: unknown) => void
+    );
+    return () => {
+      window.removeEventListener(
+        'goose:extensionGenerated',
+        handler as unknown as (ev: unknown) => void
+      );
+    };
+  }, []);
 
   // Update extension data
   const updateExtensionData = useCallback((updates: Partial<ExtensionBuilderData>) => {
@@ -133,6 +223,163 @@ const ExtensionBuilder: React.FC = () => {
     }
   };
 
+  // Add to agent (activate)
+  const addExtensionToAgent = async () => {
+    try {
+      setIsAdding(true);
+      // Map builder state into ExtensionConfig
+      const name = (extensionData.name || '').trim();
+      if (!name) {
+        toast.error('Please provide an extension name before adding');
+        return;
+      }
+
+      let payload:
+        | {
+            type: 'stdio';
+            name: string;
+            description: string | null;
+            cmd: string;
+            args: string[];
+            envs: Record<string, string>;
+            env_keys: string[];
+            timeout: number;
+            bundled: null;
+            available_tools: string[];
+          }
+        | {
+            type: 'streamable_http';
+            name: string;
+            description: string | null;
+            uri: string;
+            headers: Record<string, string>;
+            envs: Record<string, string>;
+            env_keys: string[];
+            timeout: number;
+            bundled: null;
+            available_tools: string[];
+          }
+        | {
+            type: 'sse';
+            name: string;
+            description: string | null;
+            uri: string;
+            envs: Record<string, string>;
+            env_keys: string[];
+            timeout: number;
+            bundled: null;
+            available_tools: string[];
+          }
+        | {
+            type: 'frontend';
+            name: string;
+            description: string | null;
+            tools: ToolDefinition[];
+            bundled: null;
+            available_tools: string[];
+          }
+        | {
+            type: 'podman_python';
+            name: string;
+            description: string | null;
+            code: string;
+            timeout: number;
+            dependencies: string[];
+            available_tools: string[];
+          };
+      switch (extensionData.type) {
+        case 'stdio':
+          payload = {
+            type: 'stdio',
+            name,
+            description: extensionData.description || null,
+            cmd: extensionData.cmd || 'uv',
+            args: Array.isArray(extensionData.args) ? extensionData.args : [],
+            envs: {},
+            env_keys: [],
+            timeout: extensionData.timeout || 300,
+            bundled: null,
+            available_tools: [],
+          };
+          break;
+        case 'streamable_http':
+          payload = {
+            type: 'streamable_http',
+            name,
+            description: extensionData.description || null,
+            uri: extensionData.endpoint || '',
+            headers: Object.fromEntries((extensionData.headers || []).map((h) => [h.key, h.value])),
+            envs: {},
+            env_keys: [],
+            timeout: extensionData.timeout || 300,
+            bundled: null,
+            available_tools: [],
+          };
+          break;
+        case 'sse':
+          payload = {
+            type: 'sse',
+            name,
+            description: extensionData.description || null,
+            uri: extensionData.endpoint || '',
+            envs: {},
+            env_keys: [],
+            timeout: extensionData.timeout || 300,
+            bundled: null,
+            available_tools: [],
+          };
+          break;
+        case 'frontend':
+          payload = {
+            type: 'frontend',
+            name,
+            description: extensionData.description || null,
+            tools: extensionData.tools || [],
+            bundled: null,
+            available_tools: [],
+          };
+          break;
+        case 'inline_python':
+        default:
+          payload = {
+            type: 'podman_python',
+            name,
+            description: extensionData.description || null,
+            code: extensionData.code || '',
+            timeout: extensionData.timeout || 300,
+            dependencies: extensionData.dependencies || [],
+            available_tools: [],
+          };
+          break;
+      }
+
+      await addToAgent(payload);
+      toast.success('Extension added to agent');
+
+      // Also persist to configuration so it appears on the Extensions page
+      try {
+        const response = await fetch(getApiUrl('/config/extensions'), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Secret-Key': await window.electron.getSecretKey(),
+          },
+          body: JSON.stringify({ name, enabled: true, config: payload }),
+        });
+        if (!response.ok) {
+          console.warn('Failed to save extension to config:', response.status, response.statusText);
+        }
+      } catch (e) {
+        console.warn('Error while saving extension to config:', e);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error(msg);
+    } finally {
+      setIsAdding(false);
+    }
+  };
+
   // Export extension
   const exportExtension = () => {
     const exportData = {
@@ -158,11 +405,34 @@ const ExtensionBuilder: React.FC = () => {
   };
 
   // Handle AI-generated extension
-  const handleExtensionGenerated = () => {
+  const handleExtensionGenerated = (generated?: Record<string, unknown>) => {
+    if (generated && typeof generated === 'object') {
+      // Map generated config into our builder state shape
+      const type = normalizeType(generated.type);
+      const name = (generated.name as string) || '';
+      const description = (generated.description as string) || '';
+      const code = (generated.code as string) || '';
+      const cmd = (generated.cmd as string) || undefined;
+      const args = Array.isArray(generated.args) ? generated.args : undefined;
+      const timeout = typeof generated.timeout === 'number' ? generated.timeout : 300;
+      const dependencies = Array.isArray(generated.dependencies) ? generated.dependencies : [];
+
+      setExtensionData((prev) => ({
+        ...prev,
+        type,
+        name,
+        description,
+        code,
+        cmd,
+        args,
+        timeout,
+        dependencies,
+      }));
+    }
+
     toast.success(
       'Extension generated successfully! You can now review and modify it in the tabs above.'
     );
-    // Switch to the type tab to show the generated extension
     setActiveTab('type');
   };
 
@@ -175,7 +445,11 @@ const ExtensionBuilder: React.FC = () => {
     reader.onload = (e) => {
       try {
         const data = JSON.parse(e.target?.result as string);
-        setExtensionData(data);
+        const normalized: ExtensionBuilderData = {
+          ...data,
+          type: normalizeType(data.type),
+        };
+        setExtensionData(normalized);
         toast.success('Extension imported successfully!');
       } catch {
         toast.error('Failed to import extension: Invalid JSON');
@@ -396,6 +670,14 @@ const ExtensionBuilder: React.FC = () => {
               >
                 <Save className="h-4 w-4 mr-2" />
                 {isSaving ? 'Saving...' : 'Save Extension'}
+              </Button>
+
+              <Button
+                onClick={addExtensionToAgent}
+                disabled={isAdding || !extensionData.name}
+                className="w-full"
+              >
+                {isAdding ? 'Adding...' : 'Add to Agent'}
               </Button>
 
               <Button

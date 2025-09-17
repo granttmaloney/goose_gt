@@ -1,5 +1,5 @@
-use goose::agents::extension::Envs;
 use goose::agents::extension::ToolInfo;
+use goose::agents::extension::{Envs, PodmanResourceLimits};
 use goose::agents::ExtensionConfig;
 use goose::config::permission::PermissionLevel;
 use goose::config::ExtensionEntry;
@@ -325,6 +325,7 @@ derive_utoipa!(Tool as ToolSchema);
 derive_utoipa!(ToolAnnotations as ToolAnnotationsSchema);
 derive_utoipa!(Annotations as AnnotationsSchema);
 derive_utoipa!(ResourceContents as ResourceContentsSchema);
+derive_utoipa!(PodmanResourceLimits as PodmanResourceLimitsSchema);
 
 // Create a manual schema for the generic Annotated type
 // We manually define this to avoid circular references from RawContent::Audio(AudioContent)
@@ -503,6 +504,7 @@ impl<'__s> ToSchema<'__s> for AnnotatedSchema {
         super::routes::agent::StartAgentResponse,
         super::routes::agent::ErrorResponse,
         super::routes::setup::SetupResponse,
+        PodmanResourceLimitsSchema,
     ))
 )]
 pub struct ApiDoc;

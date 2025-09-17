@@ -3,7 +3,7 @@ import { Select } from '../../../ui/Select';
 
 interface ExtensionInfoFieldsProps {
   name: string;
-  type: 'stdio' | 'sse' | 'streamable_http' | 'builtin';
+  type: 'stdio' | 'sse' | 'streamable_http' | 'builtin' | 'podman_python';
   description: string;
   onChange: (key: string, value: string) => void;
   submitAttempted: boolean;

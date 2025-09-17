@@ -3,6 +3,14 @@ use config::{Config, Environment};
 use serde::Deserialize;
 use std::net::SocketAddr;
 
+fn default_host() -> String {
+    "127.0.0.1".to_string()
+}
+
+fn default_port() -> u16 {
+    3000
+}
+
 #[derive(Debug, Default, Deserialize)]
 pub struct Settings {
     #[serde(default = "default_host")]
@@ -64,14 +72,6 @@ impl Settings {
             }
         }
     }
-}
-
-fn default_host() -> String {
-    "127.0.0.1".to_string()
-}
-
-fn default_port() -> u16 {
-    3000
 }
 
 #[cfg(test)]

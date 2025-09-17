@@ -2398,6 +2398,74 @@
                 ]
               }
             }
+          },
+          {
+            "type": "object",
+            "description": "Podman-based extension that runs Python code in containers",
+            "required": [
+              "name",
+              "code",
+              "type"
+            ],
+            "properties": {
+              "available_tools": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "bundled": {
+                "type": "boolean",
+                "description": "Whether this extension is bundled with Goose",
+                "nullable": true
+              },
+              "code": {
+                "type": "string",
+                "description": "The Python code to execute"
+              },
+              "dependencies": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Python dependencies to install"
+              },
+              "description": {
+                "type": "string",
+                "description": "Description of the extension",
+                "nullable": true
+              },
+              "image": {
+                "type": "string",
+                "description": "Container image to use (defaults to python:3.11-slim)",
+                "nullable": true
+              },
+              "name": {
+                "type": "string",
+                "description": "The name used to identify this extension"
+              },
+              "resource_limits": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/PodmanResourceLimits"
+                  }
+                ],
+                "nullable": true
+              },
+              "timeout": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Timeout for the extension execution",
+                "nullable": true,
+                "minimum": 0
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "podman_python"
+                ]
+              }
+            }
           }
         ],
         "description": "Represents the different types of MCP extensions that can be added to the manager",
@@ -2923,6 +2991,22 @@
           "ask_before",
           "never_allow"
         ]
+      },
+      "PodmanResourceLimits": {
+        "type": "object",
+        "properties": {
+          "cpu_limit": {
+            "type": "number"
+          },
+          "memory_mb": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "timeout_seconds": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
       },
       "PrincipalType": {
         "type": "string",

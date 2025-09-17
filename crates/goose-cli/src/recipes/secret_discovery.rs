@@ -57,6 +57,7 @@ fn extract_secrets_from_extensions(
             ExtensionConfig::Builtin { name, .. } => (name, &Vec::new()),
             ExtensionConfig::Frontend { name, .. } => (name, &Vec::new()),
             ExtensionConfig::InlinePython { name, .. } => (name, &Vec::new()),
+            ExtensionConfig::PodmanPython { name, .. } => (name, &Vec::new()),
         };
 
         for key in env_keys {

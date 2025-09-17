@@ -78,6 +78,7 @@ impl AsyncTokenCounter {
         if !tools.is_empty() {
             for tool in tools {
                 func_token_count += func_init;
+
                 let name = &tool.name;
                 let description = &tool
                     .description
@@ -86,27 +87,29 @@ impl AsyncTokenCounter {
                     .unwrap_or_default()
                     .trim_end_matches('.');
 
-                // Note: the separator (:) is likely tokenized with adjacent tokens, so we use original approach for accuracy
                 let line = format!("{}:{}", name, description);
                 func_token_count += self.count_tokens(&line);
 
-                if let serde_json::Value::Object(properties) = &tool.input_schema["properties"] {
+                if let Some(serde_json::Value::Object(properties)) =
+                    tool.input_schema.get("properties")
+                {
                     if !properties.is_empty() {
                         func_token_count += prop_init;
                         for (key, value) in properties {
                             func_token_count += prop_key;
                             let p_name = key;
-                            let p_type = value["type"].as_str().unwrap_or("");
-                            let p_desc = value["description"]
-                                .as_str()
+                            let p_type = value.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                            let p_desc = value
+                                .get("description")
+                                .and_then(|v| v.as_str())
                                 .unwrap_or("")
                                 .trim_end_matches('.');
 
-                            // Note: separators are tokenized with adjacent tokens, keep original for accuracy
                             let line = format!("{}:{}:{}", p_name, p_type, p_desc);
                             func_token_count += self.count_tokens(&line);
 
-                            if let Some(enum_values) = value["enum"].as_array() {
+                            if let Some(enum_values) = value.get("enum").and_then(|v| v.as_array())
+                            {
                                 func_token_count =
                                     func_token_count.saturating_add_signed(enum_init);
                                 for item in enum_values {
@@ -229,6 +232,7 @@ impl TokenCounter {
         if !tools.is_empty() {
             for tool in tools {
                 func_token_count += func_init; // Add tokens for start of each function
+
                 let name = &tool.name;
                 let description = &tool
                     .description
@@ -239,22 +243,27 @@ impl TokenCounter {
                 let line = format!("{}:{}", name, description);
                 func_token_count += self.count_tokens(&line); // Add tokens for name and description
 
-                if let serde_json::Value::Object(properties) = &tool.input_schema["properties"] {
+                if let Some(serde_json::Value::Object(properties)) =
+                    tool.input_schema.get("properties")
+                {
                     if !properties.is_empty() {
                         func_token_count += prop_init; // Add tokens for start of properties
                         for (key, value) in properties {
                             func_token_count += prop_key; // Add tokens for each property
                             let p_name = key;
-                            let p_type = value["type"].as_str().unwrap_or("");
-                            let p_desc = value["description"]
-                                .as_str()
+                            let p_type = value.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                            let p_desc = value
+                                .get("description")
+                                .and_then(|v| v.as_str())
                                 .unwrap_or("")
                                 .trim_end_matches('.');
                             let line = format!("{}:{}:{}", p_name, p_type, p_desc);
                             func_token_count += self.count_tokens(&line);
-                            if let Some(enum_values) = value["enum"].as_array() {
+
+                            if let Some(enum_values) = value.get("enum").and_then(|v| v.as_array())
+                            {
                                 func_token_count =
-                                    func_token_count.saturating_add_signed(enum_init); // Add tokens if property has enum list
+                                    func_token_count.saturating_add_signed(enum_init);
                                 for item in enum_values {
                                     if let Some(item_str) = item.as_str() {
                                         func_token_count += enum_item;

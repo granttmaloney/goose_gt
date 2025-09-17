@@ -3,13 +3,124 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
+use crate::routes::progress_tracker::{
+    get_extension_generation_steps, send_progress_update, ProgressStatus, ProgressTracker,
+};
+use crate::routes::reply::SseResponse;
 use crate::state::AppState;
-use axum::{extract::State, routing::post, Json, Router};
-use goose::agents::{extension::Envs, ExtensionConfig};
+use axum::http::HeaderMap;
+use axum::{
+    extract::{Query, State},
+    routing::post,
+    Json, Router,
+};
+use goose::agents::{
+    extension::{Envs, PodmanResourceLimits},
+    ExtensionConfig,
+};
 use http::StatusCode;
 use rmcp::model::Tool;
 use serde::{Deserialize, Serialize};
+use tokio::process::Command;
+use tokio::sync::mpsc;
 use tracing;
+
+/// Validate an extension request
+fn validate_extension_request(request: &ExtensionConfigRequest) -> Result<(), String> {
+    match request {
+        ExtensionConfigRequest::PodmanPython {
+            name,
+            code,
+            dependencies: _dependencies,
+            timeout,
+            ..
+        } => {
+            if name.is_empty() {
+                return Err("Extension name cannot be empty".to_string());
+            }
+            if code.is_empty() {
+                return Err("Extension code cannot be empty".to_string());
+            }
+            if let Some(timeout) = timeout {
+                if *timeout == 0 {
+                    return Err("Timeout must be greater than 0".to_string());
+                }
+            }
+            // Check for potentially dangerous code patterns
+            let dangerous_patterns = [
+                "import os",
+                "import subprocess",
+                "import sys",
+                "exec(",
+                "eval(",
+                "__import__",
+                "open(",
+                "file(",
+                "input(",
+                "raw_input(",
+            ];
+            for pattern in &dangerous_patterns {
+                if code.contains(pattern) {
+                    tracing::warn!(
+                        "Extension code contains potentially dangerous pattern: {}",
+                        pattern
+                    );
+                }
+            }
+            Ok(())
+        }
+        ExtensionConfigRequest::Stdio {
+            name,
+            cmd,
+            args: _args,
+            timeout,
+            ..
+        } => {
+            if name.is_empty() {
+                return Err("Extension name cannot be empty".to_string());
+            }
+            if cmd.is_empty() {
+                return Err("Command cannot be empty".to_string());
+            }
+            if let Some(timeout) = timeout {
+                if *timeout == 0 {
+                    return Err("Timeout must be greater than 0".to_string());
+                }
+            }
+            Ok(())
+        }
+        ExtensionConfigRequest::Sse { name, uri, .. } => {
+            if name.is_empty() {
+                return Err("Extension name cannot be empty".to_string());
+            }
+            if uri.is_empty() {
+                return Err("URI cannot be empty".to_string());
+            }
+            Ok(())
+        }
+        ExtensionConfigRequest::Builtin { name, .. } => {
+            if name.is_empty() {
+                return Err("Extension name cannot be empty".to_string());
+            }
+            Ok(())
+        }
+        ExtensionConfigRequest::StreamableHttp { name, uri, .. } => {
+            if name.is_empty() {
+                return Err("Extension name cannot be empty".to_string());
+            }
+            if uri.is_empty() {
+                return Err("URI cannot be empty".to_string());
+            }
+            Ok(())
+        }
+        ExtensionConfigRequest::Frontend { name, .. } => {
+            if name.is_empty() {
+                return Err("Extension name cannot be empty".to_string());
+            }
+            Ok(())
+        }
+    }
+}
 
 /// Enum representing the different types of extension configuration requests.
 #[derive(Deserialize)]
@@ -84,6 +195,41 @@ enum ExtensionConfigRequest {
         /// Optional instructions for using the tools
         instructions: Option<String>,
     },
+    /// Podman-based extension that runs Python code in containers
+    #[serde(rename = "podman_python")]
+    PodmanPython {
+        /// The name to identify this extension
+        name: String,
+        /// The Python code to execute
+        code: String,
+        /// Python dependencies to install
+        #[serde(default)]
+        dependencies: Vec<String>,
+        /// Container image to use (defaults to python:3.11-slim)
+        #[serde(default)]
+        image: Option<String>,
+        /// Resource limits for the container
+        #[serde(default)]
+        resource_limits: Option<PodmanResourceLimits>,
+        /// Timeout for the extension execution
+        timeout: Option<u64>,
+        /// Description of the extension
+        description: Option<String>,
+    },
+}
+
+impl ExtensionConfigRequest {
+    /// Get the name of the extension
+    fn name(&self) -> &str {
+        match self {
+            ExtensionConfigRequest::Sse { name, .. } => name,
+            ExtensionConfigRequest::Stdio { name, .. } => name,
+            ExtensionConfigRequest::Builtin { name, .. } => name,
+            ExtensionConfigRequest::StreamableHttp { name, .. } => name,
+            ExtensionConfigRequest::Frontend { name, .. } => name,
+            ExtensionConfigRequest::PodmanPython { name, .. } => name,
+        }
+    }
 }
 
 /// Response structure for adding an extension.
@@ -119,6 +265,15 @@ async fn add_extension(
             return Err(StatusCode::UNPROCESSABLE_ENTITY);
         }
     };
+
+    // Validate the request
+    if let Err(validation_error) = validate_extension_request(&request) {
+        tracing::error!("Extension request validation failed: {}", validation_error);
+        return Ok(Json(ExtensionResponse {
+            error: true,
+            message: Some(format!("Validation error: {}", validation_error)),
+        }));
+    }
 
     // If this is a Stdio extension that uses npx, check for Node.js installation
     #[cfg(target_os = "windows")]
@@ -173,6 +328,9 @@ async fn add_extension(
             }
         }
     }
+
+    // Get the extension name before any moves
+    let extension_name = request.name().to_string();
 
     // Construct ExtensionConfig with Envs populated from keyring based on provided env_keys.
     let extension_config: ExtensionConfig = match request {
@@ -265,6 +423,130 @@ async fn add_extension(
             bundled: None,
             available_tools: Vec::new(),
         },
+        ExtensionConfigRequest::PodmanPython {
+            name,
+            code,
+            dependencies,
+            image,
+            resource_limits,
+            timeout,
+            description,
+        } => {
+            // Check if Podman is available, if not handle based on dependencies/code
+            if !is_podman_available().await {
+                // If the requested extension requires external dependencies, do NOT fall back to stdio.
+                // Instead, return a clear error so the UI can instruct the user to enable Podman.
+                let code_lower = code.to_lowercase();
+                let requires_external_libs = !dependencies.is_empty()
+                    || code_lower.contains("import pandas")
+                    || code_lower.contains("import numpy")
+                    || code_lower.contains("import matplotlib")
+                    || code_lower.contains("import sklearn");
+
+                if requires_external_libs {
+                    tracing::warn!(
+                        "Podman not available, and extension '{}' requires external dependencies; refusing stdio fallback",
+                        name
+                    );
+                    return Ok(Json(ExtensionResponse {
+                        error: true,
+                        message: Some("Podman is not available. This extension requires external Python libraries and must run in a container. Install/start Podman or enable GOOSE_PODMAN_AUTOSTART and try again.".to_string()),
+                    }));
+                }
+
+                tracing::warn!(
+                    "Podman not available, falling back to stdio extension for: {}",
+                    name
+                );
+
+                // Create a simple stdio extension that can handle the user's Python code
+                // We'll use a basic MCP-compatible wrapper
+                let wrapped_code = format!(
+                    r#"
+import sys
+import json
+import io
+import contextlib
+
+# Capture stdout to return as JSON
+output = io.StringIO()
+
+# Original user code
+{}
+
+# Simple MCP-like interface
+def process_request(data):
+    try:
+        # Execute the original code logic
+        with contextlib.redirect_stdout(output):
+            # If the code defines a main function or similar, call it
+            if 'main' in globals():
+                result = main()
+            elif 'process' in globals():
+                result = process(data)
+            else:
+                # Try to execute the code directly
+                exec(compile('''{}''', '<string>', 'exec'))
+                result = {{"status": "success", "output": output.getvalue()}}
+        return result
+    except Exception as e:
+        return {{"error": str(e), "type": "execution_error"}}
+
+# Read from stdin and write to stdout
+if __name__ == "__main__":
+    try:
+        # Simple protocol: read JSON from stdin, write JSON to stdout
+        for line in sys.stdin:
+            if line.strip():
+                try:
+                    request = json.loads(line.strip())
+                    response = process_request(request)
+                    print(json.dumps(response))
+                    sys.stdout.flush()
+                except json.JSONDecodeError:
+                    # If not JSON, treat as plain text input
+                    response = process_request(line.strip())
+                    print(json.dumps(response))
+                    sys.stdout.flush()
+    except KeyboardInterrupt:
+        pass
+"#,
+                    code, code
+                );
+
+                ExtensionConfig::Stdio {
+                    name,
+                    cmd: "uv".to_string(),
+                    args: vec![
+                        "run".to_string(),
+                        "python".to_string(),
+                        "-c".to_string(),
+                        wrapped_code,
+                    ],
+                    envs: Envs::default(),
+                    env_keys: Vec::new(),
+                    timeout,
+                    description: Some(format!(
+                        "{} (Podman fallback)",
+                        description.as_deref().unwrap_or("Extension")
+                    )),
+                    bundled: None,
+                    available_tools: Vec::new(),
+                }
+            } else {
+                ExtensionConfig::PodmanPython {
+                    name,
+                    code,
+                    dependencies,
+                    image,
+                    resource_limits,
+                    timeout,
+                    description,
+                    bundled: None,
+                    available_tools: Vec::new(),
+                }
+            }
+        }
     };
 
     let agent = state.get_agent().await;
@@ -272,18 +554,36 @@ async fn add_extension(
 
     // Respond with the result.
     match response {
-        Ok(_) => Ok(Json(ExtensionResponse {
-            error: false,
-            message: None,
-        })),
+        Ok(_) => {
+            tracing::info!("Successfully added extension: {}", extension_name);
+            Ok(Json(ExtensionResponse {
+                error: false,
+                message: None,
+            }))
+        }
         Err(e) => {
-            eprintln!("Failed to add extension configuration: {:?}", e);
+            tracing::error!("Failed to add extension configuration: {:?}", e);
+
+            // Provide more detailed error information
+            let error_message = match &e {
+                goose::agents::extension::ExtensionError::ProcessExit(process_exit) => {
+                    format!("Extension process failed to start: {}", process_exit)
+                }
+                goose::agents::extension::ExtensionError::InitializeError(init_error) => {
+                    format!("Failed to initialize MCP client: {}", init_error)
+                }
+                goose::agents::extension::ExtensionError::SetupError(setup_error) => {
+                    format!("Extension setup failed: {}", setup_error)
+                }
+                goose::agents::extension::ExtensionError::PodmanNotAvailable => {
+                    "Podman is not available or not installed".to_string()
+                }
+                _ => format!("Extension error: {:?}", e),
+            };
+
             Ok(Json(ExtensionResponse {
                 error: true,
-                message: Some(format!(
-                    "Failed to add extension configuration, error: {:?}",
-                    e
-                )),
+                message: Some(error_message),
             }))
         }
     }
@@ -323,30 +623,183 @@ async fn generate_extension_from_prompt(
     State(state): State<Arc<AppState>>,
     Json(request): Json<GenerateExtensionRequest>,
 ) -> Result<Json<ExtensionResponse>, StatusCode> {
-    tracing::info!("Received AI extension generation request: {}", request.prompt);
+    tracing::info!(
+        "Received AI extension generation request: {}",
+        request.prompt
+    );
+
+    // Create progress tracker
+    let mut progress_tracker = ProgressTracker::new(get_extension_generation_steps());
+
+    // Start the first step
+    if let Err(e) = progress_tracker.start_step("validate_request", "Validating extension request")
+    {
+        tracing::error!("Failed to start validation step: {}", e);
+        return Ok(Json(ExtensionResponse {
+            error: true,
+            message: Some(format!("Failed to start validation: {}", e)),
+        }));
+    }
 
     let agent = state.get_agent().await;
-    
+
     // Use a subagent to generate the extension configuration
     let task_config = goose::agents::TaskConfig::new(agent.provider().await.ok());
 
+    // Complete validation step
+    if let Err(e) =
+        progress_tracker.complete_step("validate_request", "Request validated successfully", None)
+    {
+        tracing::error!("Failed to complete validation step: {}", e);
+        return Ok(Json(ExtensionResponse {
+            error: true,
+            message: Some(format!("Failed to complete validation: {}", e)),
+        }));
+    }
+
+    // Start code generation step
+    if let Err(e) =
+        progress_tracker.start_step("generate_code", "Generating extension code with AI")
+    {
+        tracing::error!("Failed to start code generation step: {}", e);
+        return Ok(Json(ExtensionResponse {
+            error: true,
+            message: Some(format!("Failed to start code generation: {}", e)),
+        }));
+    }
+
     match goose::agents::subagent_handler::run_complete_subagent_task_with_options(
         format!(
-            "Create a custom extension based on this description: {}\n\nCRITICAL REQUIREMENTS - FOLLOW EXACTLY:\n\n1. For Python stdio extensions, you MUST use this exact format:\n   {{\n     \"type\": \"stdio\",\n     \"name\": \"extension-name\",\n     \"description\": \"Your description here\",\n     \"cmd\": \"uv\",\n     \"args\": [\"run\", \"python\", \"-c\", \"your_python_code_here\"],\n     \"timeout\": 30\n   }}\n\n2. NEVER use 'python' or 'python3' as the cmd - ALWAYS use 'uv'\n3. NEVER use 'command' field - ALWAYS use 'cmd' field\n4. NEVER use 'timeout_ms' - ALWAYS use 'timeout' field\n5. NEVER use pandas or numpy - use only built-in Python libraries (csv, json, statistics, collections)\n6. For Python code, use only standard library imports like: import csv, json, sys, statistics, collections\n\nPYTHON CODE REQUIREMENTS - ABSOLUTELY CRITICAL:\n- Write ONLY the most basic Python code possible\n- NO loops (for, while), NO conditionals (if, else), NO try/except\n- NO list comprehensions, NO dictionary comprehensions\n- NO complex expressions, NO nested statements\n- Use ONLY these statements: import, open, read, print, close\n- Use semicolons (;) to separate statements\n- Use sys.argv[1] for file input\n- Maximum 4 simple statements only\n- Example: import csv, json, sys; f = open(sys.argv[1], 'r'); data = list(csv.DictReader(f)); print(json.dumps({{'rows': len(data)}}))\n\nEXAMPLE for CSV analysis:\n{{\n  \"type\": \"stdio\",\n  \"name\": \"csv-analyzer\",\n  \"description\": \"Analyzes CSV files using standard library\",\n  \"cmd\": \"uv\",\n  \"args\": [\"run\", \"python\", \"-c\", \"import csv, json, sys; f = open(sys.argv[1], 'r'); data = list(csv.DictReader(f)); print(json.dumps({{'rows': len(data)}}))\"],\n  \"timeout\": 30\n}}\n\nABSOLUTELY CRITICAL: Generate ONLY the most basic Python code. NO loops, NO conditionals, NO complex logic. Just import, open, read, print. Nothing else!\n\nReturn ONLY the JSON configuration object, nothing else.",
+            r#"Create a custom extension based on this description: {}
+
+EXTENSION TYPE SELECTION:
+
+Choose the appropriate extension type based on complexity:
+
+1. SIMPLE EXTENSIONS (use stdio type):
+   - Basic data processing with standard library only
+   - No external dependencies (pandas, numpy, etc.)
+   - Simple file operations, CSV parsing, JSON processing
+   - No loops, conditionals, or complex logic
+   
+2. COMPLEX EXTENSIONS (use podman_python type):
+   - Requires external libraries (pandas, numpy, matplotlib, etc.)
+   - Complex data analysis, machine learning, visualization
+   - Multiple files, complex algorithms, loops, conditionals
+   - Any code that can't run with basic Python standard library
+
+SIMPLE EXTENSION FORMAT (stdio):
+{{
+  "type": "stdio",
+  "name": "extension-name",
+  "description": "Your description here",
+  "cmd": "uv",
+  "args": ["run", "python", "-c", "your_simple_python_code_here"],
+  "timeout": 30
+}}
+
+COMPLEX EXTENSION FORMAT (podman_python):
+{{
+  "type": "podman_python",
+  "name": "extension-name",
+  "description": "Your description here",
+  "code": "your_complex_python_code_here",
+  "dependencies": ["pandas", "numpy", "matplotlib"],
+  "timeout": 60
+}}
+
+SIMPLE EXTENSION REQUIREMENTS:
+- Use ONLY standard library: csv, json, sys, statistics, collections, os, pathlib
+- NO loops, NO conditionals, NO try/except
+- NO list comprehensions, NO dictionary comprehensions
+- Use semicolons (;) to separate statements
+- Maximum 4 simple statements only
+- Example: import csv, json, sys; f = open(sys.argv[1], 'r'); data = list(csv.DictReader(f)); print(json.dumps({{"rows": len(data)}}))
+
+COMPLEX EXTENSION REQUIREMENTS:
+- Can use ANY Python libraries (pandas, numpy, matplotlib, scikit-learn, etc.)
+- Can use loops, conditionals, functions, classes
+- Can be multiple lines of complex code
+- Dependencies will be automatically installed in container
+- Code runs in isolated Podman container for security
+
+MCP WRAPPER COMPATIBILITY (podman_python):
+- You MUST implement either:
+  - def process(data): returns a JSON-serializable result (preferred), or
+  - def main(): returns a JSON-serializable result.
+- Prefer `process(data)`. It receives a dict parsed from the input.
+- Minimal example: def process(data): return "ok"
+
+DECISION CRITERIA:
+- If the task requires pandas, numpy, matplotlib, or any external library → use podman_python
+- If the task is simple file processing with standard library → use stdio
+- If the task involves data analysis, visualization, or ML → use podman_python
+- If the task is basic CSV/JSON processing → use stdio
+
+Return ONLY the JSON configuration object, nothing else."#,
             request.prompt
         ),
         task_config,
         true, // return_last_only
     ).await {
         Ok(response_text) => {
+            // Complete code generation step
+            if let Err(e) = progress_tracker.complete_step("generate_code", "AI code generation completed", Some(format!("Generated {} characters", response_text.len()))) {
+                tracing::error!("Failed to complete code generation step: {}", e);
+                return Ok(Json(ExtensionResponse {
+                    error: true,
+                    message: Some(format!("Failed to complete code generation: {}", e)),
+                }));
+            }
+
+            // Start parsing step
+            if let Err(e) = progress_tracker.start_step("parse_response", "Parsing AI response") {
+                tracing::error!("Failed to start parsing step: {}", e);
+                return Ok(Json(ExtensionResponse {
+                    error: true,
+                    message: Some(format!("Failed to start parsing: {}", e)),
+                }));
+            }
 
             // Try to parse the JSON configuration
             if let Ok(extension_config) = serde_json::from_str::<serde_json::Value>(&response_text) {
+                // Complete parsing step
+                if let Err(e) = progress_tracker.complete_step("parse_response", "Successfully parsed JSON configuration", None) {
+                    tracing::error!("Failed to complete parsing step: {}", e);
+                    return Ok(Json(ExtensionResponse {
+                        error: true,
+                        message: Some(format!("Failed to complete parsing: {}", e)),
+                    }));
+                }
+
+                // Start extension creation step
+                if let Err(e) = progress_tracker.start_step("create_extension", "Creating extension configuration") {
+                    tracing::error!("Failed to start extension creation step: {}", e);
+                    return Ok(Json(ExtensionResponse {
+                        error: true,
+                        message: Some(format!("Failed to start extension creation: {}", e)),
+                    }));
+                }
+
                 // Add the extension using the existing add_extension logic
                 let add_response = add_extension(State(state), Json(extension_config)).await;
                 match add_response {
-                    Ok(response) => Ok(response),
+                    Ok(response) => {
+                        // Complete all steps
+                        if let Err(e) = progress_tracker.complete_step("create_extension", "Extension created successfully", None) {
+                            tracing::error!("Failed to complete extension creation step: {}", e);
+                            return Ok(Json(ExtensionResponse {
+                                error: true,
+                                message: Some(format!("Failed to complete extension creation: {}", e)),
+                            }));
+                        }
+                        progress_tracker.complete_all();
+                        Ok(response)
+                    },
                     Err(e) => {
+                        if let Err(err) = progress_tracker.fail_step("create_extension", "Failed to create extension", Some(format!("{:?}", e))) {
+                            tracing::error!("Failed to record failure: {}", err);
+                        }
                         tracing::error!("Failed to add generated extension: {:?}", e);
                         Ok(Json(ExtensionResponse {
                             error: true,
@@ -356,16 +809,52 @@ async fn generate_extension_from_prompt(
                 }
             } else {
                 // If JSON parsing fails, try to extract JSON from the response
+                if let Err(e) = progress_tracker.start_step("parse_response", "Attempting to extract JSON from response") {
+                    tracing::error!("Failed to start JSON extraction step: {}", e);
+                    return Ok(Json(ExtensionResponse {
+                        error: true,
+                        message: Some(format!("Failed to start JSON extraction: {}", e)),
+                    }));
+                }
+
                 let json_start = response_text.find('{');
                 let json_end = response_text.rfind('}');
-                
+
                 if let (Some(start), Some(end)) = (json_start, json_end) {
                     let json_str = &response_text[start..=end];
                     if let Ok(extension_config) = serde_json::from_str::<serde_json::Value>(json_str) {
+                        if let Err(e) = progress_tracker.complete_step("parse_response", "Successfully extracted JSON from response", None) {
+                            tracing::error!("Failed to complete JSON extraction step: {}", e);
+                            return Ok(Json(ExtensionResponse {
+                                error: true,
+                                message: Some(format!("Failed to complete JSON extraction: {}", e)),
+                            }));
+                        }
+                        if let Err(e) = progress_tracker.start_step("create_extension", "Creating extension configuration") {
+                            tracing::error!("Failed to start extension creation step: {}", e);
+                            return Ok(Json(ExtensionResponse {
+                                error: true,
+                                message: Some(format!("Failed to start extension creation: {}", e)),
+                            }));
+                        }
+
                         let add_response = add_extension(State(state), Json(extension_config)).await;
                         match add_response {
-                            Ok(response) => Ok(response),
+                            Ok(response) => {
+                                if let Err(e) = progress_tracker.complete_step("create_extension", "Extension created successfully", None) {
+                                    tracing::error!("Failed to complete extension creation step: {}", e);
+                                    return Ok(Json(ExtensionResponse {
+                                        error: true,
+                                        message: Some(format!("Failed to complete extension creation: {}", e)),
+                                    }));
+                                }
+                                progress_tracker.complete_all();
+                                Ok(response)
+                            },
                             Err(e) => {
+                                if let Err(err) = progress_tracker.fail_step("create_extension", "Failed to create extension", Some(format!("{:?}", e))) {
+                                    tracing::error!("Failed to record failure: {}", err);
+                                }
                                 tracing::error!("Failed to add generated extension: {:?}", e);
                                 Ok(Json(ExtensionResponse {
                                     error: true,
@@ -374,12 +863,18 @@ async fn generate_extension_from_prompt(
                             }
                         }
                     } else {
+                        if let Err(err) = progress_tracker.fail_step("parse_response", "Failed to parse extracted JSON", Some("Invalid JSON format".to_string())) {
+                            tracing::error!("Failed to record failure: {}", err);
+                        }
                         Ok(Json(ExtensionResponse {
                             error: true,
                             message: Some("Failed to parse generated extension configuration. Please try a more specific prompt.".to_string()),
                         }))
                     }
                 } else {
+                    if let Err(err) = progress_tracker.fail_step("parse_response", "Failed to extract JSON from response", Some("No JSON object found".to_string())) {
+                        tracing::error!("Failed to record failure: {}", err);
+                    }
                     Ok(Json(ExtensionResponse {
                         error: true,
                         message: Some("Failed to extract extension configuration from AI response. Please try a more specific prompt.".to_string()),
@@ -388,6 +883,9 @@ async fn generate_extension_from_prompt(
             }
         }
         Err(e) => {
+            if let Err(err) = progress_tracker.fail_step("generate_code", "AI code generation failed", Some(format!("{:?}", e))) {
+                tracing::error!("Failed to record failure: {}", err);
+            }
             tracing::error!("Failed to generate extension: {:?}", e);
             Ok(Json(ExtensionResponse {
                 error: true,
@@ -395,6 +893,399 @@ async fn generate_extension_from_prompt(
             }))
         }
     }
+}
+
+/// Handler for generating an extension from AI prompt with streaming progress updates
+async fn generate_extension_from_prompt_streaming(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+    headers: HeaderMap,
+    Json(request): Json<GenerateExtensionRequest>,
+) -> Result<SseResponse, StatusCode> {
+    // Check authentication via query parameter OR X-Secret-Key header (either is accepted)
+    let secret_key =
+        std::env::var("GOOSE_SERVER__SECRET_KEY").unwrap_or_else(|_| "test".to_string());
+
+    let query_secret = params.get("secret_key").map(|s| s.as_str());
+    // Support alternative query name as well
+    let query_secret_alt = params.get("secret").map(|s| s.as_str());
+
+    let header_secret = headers
+        .get("X-Secret-Key")
+        .and_then(|value| value.to_str().ok());
+
+    // Also accept Authorization: Bearer <secret>
+    let bearer_secret = headers
+        .get("Authorization")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|auth| {
+            let auth_trimmed = auth.trim();
+            // Case-insensitive match for "Bearer"
+            if auth_trimmed.len() > 7 && auth_trimmed[..6].eq_ignore_ascii_case("Bearer") {
+                Some(auth_trimmed[6..].trim())
+            } else {
+                None
+            }
+        });
+
+    match query_secret
+        .or(query_secret_alt)
+        .or(header_secret)
+        .or(bearer_secret)
+    {
+        Some(provided) if provided == secret_key => {
+            // authorized
+        }
+        _ => {
+            tracing::warn!("Unauthorized streaming request: missing or invalid secret key");
+            return Err(StatusCode::UNAUTHORIZED);
+        }
+    }
+
+    tracing::info!(
+        "Received streaming AI extension generation request: {}",
+        request.prompt
+    );
+
+    let (tx, rx) = mpsc::channel(100);
+
+    // Spawn the extension generation task
+    tokio::spawn(async move {
+        let mut progress_tracker = ProgressTracker::new(get_extension_generation_steps());
+
+        // Send initial progress state
+        send_progress_update(
+            &tx,
+            "validate_request",
+            ProgressStatus::InProgress,
+            "Starting extension generation",
+            None,
+        )
+        .await;
+
+        // Start the first step
+        if let Err(e) =
+            progress_tracker.start_step("validate_request", "Validating extension request")
+        {
+            send_progress_update(
+                &tx,
+                "validate_request",
+                ProgressStatus::Failed,
+                &format!("Validation failed: {}", e),
+                None,
+            )
+            .await;
+            return;
+        }
+
+        let agent = state.get_agent().await;
+        let task_config = goose::agents::TaskConfig::new(agent.provider().await.ok());
+
+        // Complete validation step
+        if let Err(e) = progress_tracker.complete_step(
+            "validate_request",
+            "Request validated successfully",
+            None,
+        ) {
+            send_progress_update(
+                &tx,
+                "validate_request",
+                ProgressStatus::Failed,
+                &format!("Failed to complete validation: {}", e),
+                None,
+            )
+            .await;
+            return;
+        }
+
+        // Start code generation step
+        send_progress_update(
+            &tx,
+            "generate_code",
+            ProgressStatus::InProgress,
+            "Generating extension code with AI",
+            None,
+        )
+        .await;
+        if let Err(e) =
+            progress_tracker.start_step("generate_code", "Generating extension code with AI")
+        {
+            send_progress_update(
+                &tx,
+                "generate_code",
+                ProgressStatus::Failed,
+                &format!("Failed to start code generation: {}", e),
+                None,
+            )
+            .await;
+            return;
+        }
+
+        match goose::agents::subagent_handler::run_complete_subagent_task_with_options(
+            format!(
+                r#"Create a custom extension based on this description: {}
+
+EXTENSION TYPE SELECTION:
+
+Choose the appropriate extension type based on complexity:
+
+1. SIMPLE EXTENSIONS (use stdio type):
+   - Basic data processing with standard library only
+   - No external dependencies (pandas, numpy, etc.)
+   - Simple file operations, CSV parsing, JSON processing
+   - No loops, conditionals, or complex logic
+   
+2. COMPLEX EXTENSIONS (use podman_python type):
+   - Requires external libraries (pandas, numpy, matplotlib, etc.)
+   - Complex data analysis, machine learning, visualization
+   - Multiple files, complex algorithms, loops, conditionals
+   - Any code that can't run with basic Python standard library
+
+SIMPLE EXTENSION FORMAT (stdio):
+{{
+  "type": "stdio",
+  "name": "extension-name",
+  "description": "Your description here",
+  "cmd": "uv",
+  "args": ["run", "python", "-c", "your_simple_python_code_here"],
+  "timeout": 30
+}}
+
+COMPLEX EXTENSION FORMAT (podman_python):
+{{
+  "type": "podman_python",
+  "name": "extension-name",
+  "description": "Your description here",
+  "code": "your_complex_python_code_here",
+  "dependencies": ["pandas", "numpy", "matplotlib"],
+  "timeout": 60
+}}
+
+SIMPLE EXTENSION REQUIREMENTS:
+- Use ONLY standard library: csv, json, sys, statistics, collections, os, pathlib
+- NO loops, NO conditionals, NO try/except
+- NO list comprehensions, NO dictionary comprehensions
+- Use semicolons (;) to separate statements
+- Maximum 4 simple statements only
+- Example: import csv, json, sys; f = open(sys.argv[1], 'r'); data = list(csv.DictReader(f)); print(json.dumps({{"rows": len(data)}}))
+
+COMPLEX EXTENSION REQUIREMENTS:
+- Can use ANY Python libraries (pandas, numpy, matplotlib, scikit-learn, etc.)
+- Can use loops, conditionals, functions, classes
+- Can be multiple lines of complex code
+- Dependencies will be automatically installed in container
+- Code runs in isolated Podman container for security
+
+MCP WRAPPER COMPATIBILITY (podman_python):
+- You MUST implement either:
+  - def process(data): returns a JSON-serializable result (preferred), or
+  - def main(): returns a JSON-serializable result.
+- Prefer `process(data)`. It receives a dict parsed from the input.
+- Minimal example: def process(data): return "ok"
+
+DECISION CRITERIA:
+- If the task requires pandas, numpy, matplotlib, or any external library → use podman_python
+- If the task is simple file processing with standard library → use stdio
+- If the task involves data analysis, visualization, or ML → use podman_python
+- If the task is basic CSV/JSON processing → use stdio
+
+Return ONLY the JSON configuration object, nothing else."#,
+                request.prompt
+            ),
+            task_config,
+            true, // return_last_only
+        ).await {
+            Ok(response_text) => {
+                // Complete code generation step
+                send_progress_update(&tx, "generate_code", ProgressStatus::Completed, "AI code generation completed", Some(format!("Generated {} characters", response_text.len()))).await;
+                if let Err(e) = progress_tracker.complete_step("generate_code", "AI code generation completed", Some(format!("Generated {} characters", response_text.len()))) {
+                    send_progress_update(&tx, "generate_code", ProgressStatus::Failed, &format!("Failed to complete code generation: {}", e), None).await;
+                    return;
+                }
+
+                // Start parsing step
+                send_progress_update(&tx, "parse_response", ProgressStatus::InProgress, "Parsing AI response", None).await;
+                if let Err(e) = progress_tracker.start_step("parse_response", "Parsing AI response") {
+                    send_progress_update(&tx, "parse_response", ProgressStatus::Failed, &format!("Failed to start parsing: {}", e), None).await;
+                    return;
+                }
+
+                // Try to parse the JSON configuration
+                if let Ok(extension_config) = serde_json::from_str::<serde_json::Value>(&response_text) {
+                    // Complete parsing step
+                    send_progress_update(&tx, "parse_response", ProgressStatus::Completed, "Successfully parsed JSON configuration", None).await;
+                    if let Err(e) = progress_tracker.complete_step("parse_response", "Successfully parsed JSON configuration", None) {
+                        send_progress_update(&tx, "parse_response", ProgressStatus::Failed, &format!("Failed to complete parsing: {}", e), None).await;
+                        return;
+                    }
+
+                    // Start extension creation step
+                    send_progress_update(&tx, "create_extension", ProgressStatus::InProgress, "Creating extension configuration", None).await;
+                    if let Err(e) = progress_tracker.start_step("create_extension", "Creating extension configuration") {
+                        send_progress_update(&tx, "create_extension", ProgressStatus::Failed, &format!("Failed to start extension creation: {}", e), None).await;
+                        return;
+                    }
+
+                    // Add the extension using the existing add_extension logic
+                    let add_response = add_extension(State(state), Json(extension_config.clone())).await;
+                    match add_response {
+                        Ok(response) => {
+                            // Inspect inner response for error flag
+                            if response.0.error {
+                                send_progress_update(&tx, "create_extension", ProgressStatus::Failed, "Failed to create extension", response.0.message.clone()).await;
+                                let error_event = serde_json::json!({
+                                    "type": "extension_complete",
+                                    "success": false,
+                                    "error": response.0.message.clone().unwrap_or_else(|| "Failed to add generated extension".to_string())
+                                });
+                                let _ = tx.send(format!("data: {}\n\n", error_event)).await;
+                                return;
+                            }
+
+                            // Complete all steps
+                            send_progress_update(&tx, "create_extension", ProgressStatus::Completed, "Extension created successfully", None).await;
+                            if let Err(e) = progress_tracker.complete_step("create_extension", "Extension created successfully", None) {
+                                send_progress_update(&tx, "create_extension", ProgressStatus::Failed, &format!("Failed to complete extension creation: {}", e), None).await;
+                                return;
+                            }
+                            progress_tracker.complete_all();
+
+                            // Send final success message including the created extension config
+                            let success_event = serde_json::json!({
+                                "type": "extension_complete",
+                                "success": true,
+                                "extension": extension_config
+                            });
+                            let _ = tx.send(format!("data: {}\n\n", success_event)).await;
+                        },
+                        Err(e) => {
+                            send_progress_update(&tx, "create_extension", ProgressStatus::Failed, "Failed to create extension", Some(format!("{:?}", e))).await;
+                            if let Err(e) = progress_tracker.fail_step("create_extension", "Failed to create extension", Some(format!("{:?}", e))) {
+                                send_progress_update(&tx, "create_extension", ProgressStatus::Failed, &format!("Failed to record failure: {}", e), None).await;
+                            }
+
+                            // Send final error message
+                            let error_event = serde_json::json!({
+                                "type": "extension_complete",
+                                "success": false,
+                                "error": format!("Failed to add generated extension: {:?}", e),
+                                "extension": extension_config
+                            });
+                            let _ = tx.send(format!("data: {}\n\n", error_event)).await;
+                        }
+                    }
+                } else {
+                    // If JSON parsing fails, try to extract JSON from the response
+                    send_progress_update(&tx, "parse_response", ProgressStatus::InProgress, "Attempting to extract JSON from response", None).await;
+
+                    let json_start = response_text.find('{');
+                    let json_end = response_text.rfind('}');
+
+                    if let (Some(start), Some(end)) = (json_start, json_end) {
+                        let json_str = &response_text[start..=end];
+                        if let Ok(extension_config) = serde_json::from_str::<serde_json::Value>(json_str) {
+                            send_progress_update(&tx, "parse_response", ProgressStatus::Completed, "Successfully extracted JSON from response", None).await;
+                            if let Err(e) = progress_tracker.complete_step("parse_response", "Successfully extracted JSON from response", None) {
+                                send_progress_update(&tx, "parse_response", ProgressStatus::Failed, &format!("Failed to complete parsing: {}", e), None).await;
+                                return;
+                            }
+
+                            send_progress_update(&tx, "create_extension", ProgressStatus::InProgress, "Creating extension configuration", None).await;
+                            if let Err(e) = progress_tracker.start_step("create_extension", "Creating extension configuration") {
+                                send_progress_update(&tx, "create_extension", ProgressStatus::Failed, &format!("Failed to start extension creation: {}", e), None).await;
+                                return;
+                            }
+
+                            let add_response = add_extension(State(state), Json(extension_config.clone())).await;
+                            match add_response {
+                                Ok(response) => {
+                                    if response.0.error {
+                                        send_progress_update(&tx, "create_extension", ProgressStatus::Failed, "Failed to create extension", response.0.message.clone()).await;
+                                        let error_event = serde_json::json!({
+                                            "type": "extension_complete",
+                                            "success": false,
+                                            "error": response.0.message.clone().unwrap_or_else(|| "Failed to add generated extension".to_string())
+                                        });
+                                        let _ = tx.send(format!("data: {}\n\n", error_event)).await;
+                                        return;
+                                    }
+
+                                    send_progress_update(&tx, "create_extension", ProgressStatus::Completed, "Extension created successfully", None).await;
+                                    if let Err(e) = progress_tracker.complete_step("create_extension", "Extension created successfully", None) {
+                                        send_progress_update(&tx, "create_extension", ProgressStatus::Failed, &format!("Failed to complete extension creation: {}", e), None).await;
+                                        return;
+                                    }
+                                    progress_tracker.complete_all();
+
+                                    let success_event = serde_json::json!({
+                                        "type": "extension_complete",
+                                        "success": true,
+                                        "extension": extension_config
+                                    });
+                                    let _ = tx.send(format!("data: {}\n\n", success_event)).await;
+                                },
+                                Err(e) => {
+                                    send_progress_update(&tx, "create_extension", ProgressStatus::Failed, "Failed to create extension", Some(format!("{:?}", e))).await;
+                                    if let Err(e) = progress_tracker.fail_step("create_extension", "Failed to create extension", Some(format!("{:?}", e))) {
+                                        send_progress_update(&tx, "create_extension", ProgressStatus::Failed, &format!("Failed to record failure: {}", e), None).await;
+                                    }
+
+                                    let error_event = serde_json::json!({
+                                        "type": "extension_complete",
+                                        "success": false,
+                                        "error": format!("Failed to add generated extension: {:?}", e),
+                                        "extension": extension_config
+                                    });
+                                    let _ = tx.send(format!("data: {}\n\n", error_event)).await;
+                                }
+                            }
+                        } else {
+                            send_progress_update(&tx, "parse_response", ProgressStatus::Failed, "Failed to parse extracted JSON", Some("Invalid JSON format".to_string())).await;
+                            if let Err(e) = progress_tracker.fail_step("parse_response", "Failed to parse extracted JSON", Some("Invalid JSON format".to_string())) {
+                                send_progress_update(&tx, "parse_response", ProgressStatus::Failed, &format!("Failed to record failure: {}", e), None).await;
+                            }
+
+                            let error_event = serde_json::json!({
+                                "type": "extension_complete",
+                                "success": false,
+                                "error": "Failed to parse generated extension configuration. Please try a more specific prompt."
+                            });
+                            let _ = tx.send(format!("data: {}\n\n", error_event)).await;
+                        }
+                    } else {
+                        send_progress_update(&tx, "parse_response", ProgressStatus::Failed, "Failed to extract JSON from response", Some("No JSON object found".to_string())).await;
+                        if let Err(e) = progress_tracker.fail_step("parse_response", "Failed to extract JSON from response", Some("No JSON object found".to_string())) {
+                            send_progress_update(&tx, "parse_response", ProgressStatus::Failed, &format!("Failed to record failure: {}", e), None).await;
+                        }
+
+                        let error_event = serde_json::json!({
+                            "type": "extension_complete",
+                            "success": false,
+                            "error": "Failed to extract extension configuration from AI response. Please try a more specific prompt."
+                        });
+                        let _ = tx.send(format!("data: {}\n\n", error_event)).await;
+                    }
+                }
+            }
+            Err(e) => {
+                send_progress_update(&tx, "generate_code", ProgressStatus::Failed, "AI code generation failed", Some(format!("{:?}", e))).await;
+                if let Err(e) = progress_tracker.fail_step("generate_code", "AI code generation failed", Some(format!("{:?}", e))) {
+                    send_progress_update(&tx, "generate_code", ProgressStatus::Failed, &format!("Failed to record failure: {}", e), None).await;
+                }
+
+                let error_event = serde_json::json!({
+                    "type": "extension_complete",
+                    "success": false,
+                    "error": format!("Failed to generate extension: {:?}", e)
+                });
+                let _ = tx.send(format!("data: {}\n\n", error_event)).await;
+            }
+        }
+    });
+
+    Ok(SseResponse::new(
+        tokio_stream::wrappers::ReceiverStream::new(rx),
+    ))
 }
 
 /// Request structure for AI extension generation
@@ -410,6 +1301,16 @@ pub fn routes(state: Arc<AppState>) -> Router {
         .route("/extensions/add", post(add_extension))
         .route("/extensions/remove", post(remove_extension))
         .route("/extensions/generate", post(generate_extension_from_prompt))
+        .with_state(state)
+}
+
+/// Registers the streaming extension route without authentication middleware.
+pub fn streaming_routes(state: Arc<AppState>) -> Router {
+    Router::new()
+        .route(
+            "/extensions/generate/stream",
+            post(generate_extension_from_prompt_streaming),
+        )
         .with_state(state)
 }
 
@@ -1241,5 +2142,32 @@ mod tests {
 
         // Final cleanup
         env::remove_var("GOOSE_ALLOWLIST_BYPASS");
+    }
+}
+
+/// Check if Podman is available on the system
+async fn is_podman_available() -> bool {
+    let output = Command::new("podman").arg("--version").output().await;
+
+    match output {
+        Ok(output) => {
+            let is_available = output.status.success();
+            if is_available {
+                tracing::debug!(
+                    "Podman is available: {}",
+                    String::from_utf8_lossy(&output.stdout)
+                );
+            } else {
+                tracing::debug!(
+                    "Podman check failed: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+            is_available
+        }
+        Err(e) => {
+            tracing::debug!("Podman not found: {}", e);
+            false
+        }
     }
 }

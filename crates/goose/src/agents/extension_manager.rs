@@ -23,7 +23,9 @@ use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, warn};
 
-use super::extension::{ExtensionConfig, ExtensionError, ExtensionInfo, ExtensionResult, ToolInfo};
+use super::extension::{
+    ExtensionConfig, ExtensionError, ExtensionInfo, ExtensionResult, PodmanResourceLimits, ToolInfo,
+};
 use super::tool_execution::ToolCallResult;
 use crate::agents::extension::{Envs, ProcessExit};
 use crate::agents::extension_malware_check;
@@ -414,6 +416,88 @@ impl ExtensionManager {
 
                 let client = child_process_client(command, timeout).await?;
 
+                Box::new(client)
+            }
+            ExtensionConfig::PodmanPython {
+                name,
+                code,
+                dependencies,
+                image,
+                resource_limits,
+                timeout,
+                ..
+            } => {
+                // Check if Podman is available
+                if !is_podman_available().await {
+                    return Err(ExtensionError::PodmanNotAvailable);
+                }
+
+                let dir = tempdir()?;
+                let file_path = dir.path().join(format!("{}.py", name));
+                std::fs::write(&file_path, code)?;
+
+                // Always create requirements.txt including MCP library and any user dependencies
+                let requirements_path = dir.path().join("requirements.txt");
+                let mut reqs = dependencies.clone();
+                if !reqs.iter().any(|d| d.trim().starts_with("mcp")) {
+                    reqs.push("mcp".to_string());
+                }
+                let requirements_content = reqs.join("\n");
+                std::fs::write(&requirements_path, requirements_content)?;
+
+                // Create a minimal MCP server wrapper that imports the user's module and exposes a 'run' tool
+                let wrapper_path = dir.path().join("server.py");
+                let wrapper_template: &str = r#"import importlib.util
+import json
+from mcp.server.fastmcp import FastMCP
+
+mcp = FastMCP("Goose Python Extension")
+
+def _load_user_module(path):
+    spec = importlib.util.spec_from_file_location("user_module", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)  # type: ignore
+    return mod
+
+_user = _load_user_module("__SCRIPT__")
+
+@mcp.tool()
+def run(input: str | None = None) -> str:
+    try:
+        if hasattr(_user, "main"):
+            result = _user.main()  # type: ignore
+        elif hasattr(_user, "process"):
+            data = None
+            if input is not None:
+                try:
+                    data = json.loads(input)
+                except Exception:
+                    data = {"input": input}
+            result = _user.process(data)  # type: ignore
+        else:
+            result = "OK"
+        if isinstance(result, (dict, list)):
+            return json.dumps(result)
+        return str(result)
+    except Exception as ex:
+        return f"error: {ex}"
+
+if __name__ == "__main__":
+    mcp.run()
+"#;
+                let script_name = file_path.file_name().unwrap().to_str().unwrap();
+                let wrapper_code = wrapper_template.replace("__SCRIPT__", script_name);
+                std::fs::write(&wrapper_path, wrapper_code)?;
+
+                let image_name = image.as_deref().unwrap_or("python:3.11-slim");
+                let default_limits = PodmanResourceLimits::default();
+                let limits = resource_limits.as_ref().unwrap_or(&default_limits);
+
+                temp_dir = Some(dir);
+
+                let command = create_podman_command(image_name, &wrapper_path, limits, *timeout)?;
+
+                let client = child_process_client(command, timeout).await?;
                 Box::new(client)
             }
             _ => unreachable!(),
@@ -985,8 +1069,11 @@ impl ExtensionManager {
                     }
                     | ExtensionConfig::InlinePython {
                         description, name, ..
+                    }
+                    | ExtensionConfig::PodmanPython {
+                        description, name, ..
                     } => {
-                        // For SSE/StreamableHttp/Stdio/InlinePython, use description if available
+                        // For SSE/StreamableHttp/Stdio/InlinePython/PodmanPython, use description if available
                         description
                             .as_ref()
                             .map(|s| s.to_string())
@@ -1037,6 +1124,96 @@ impl ExtensionManager {
             .get(&name.into())
             .map(|ext| ext.get_client())
     }
+}
+
+/// Check if Podman is available on the system
+async fn is_podman_available() -> bool {
+    let output = Command::new("podman").arg("--version").output().await;
+
+    match output {
+        Ok(output) => output.status.success(),
+        Err(_) => false,
+    }
+}
+
+/// Create a Podman command for running Python code in a container
+#[allow(clippy::result_large_err)]
+fn create_podman_command(
+    image: &str,
+    file_path: &std::path::Path,
+    limits: &PodmanResourceLimits,
+    timeout: Option<u64>,
+) -> Result<Command, ExtensionError> {
+    let mut command = Command::new("podman");
+
+    // Basic run command
+    command.arg("run");
+    // Keep STDIN open for the MCP stdio transport
+    command.arg("-i");
+
+    // Remove container after execution
+    command.arg("--rm");
+
+    // Set resource limits
+    if let Some(memory_mb) = limits.memory_mb {
+        command.arg("--memory").arg(format!("{}m", memory_mb));
+    }
+
+    if let Some(cpu_limit) = limits.cpu_limit {
+        command.arg("--cpus").arg(cpu_limit.to_string());
+    }
+
+    // Set timeout if specified
+    let timeout_seconds = timeout.unwrap_or(limits.timeout_seconds.unwrap_or(30));
+    command
+        .arg("--stop-timeout")
+        .arg(timeout_seconds.to_string());
+
+    // Security: run as non-root user
+    command.arg("--user").arg("1000:1000");
+
+    // Read-only root filesystem is desirable, but pip installs to user site (/app/.local)
+    // which needs write access during initialization. We keep the filesystem writable for now.
+
+    // Mount the script directory as read-only
+    let script_dir = file_path.parent().unwrap();
+    command
+        .arg("--volume")
+        .arg(format!("{}:/app:ro", script_dir.display()));
+
+    // Set working directory
+    command.arg("--workdir").arg("/app");
+
+    // Allow egress network so pip can fetch dependencies inside the container during startup.
+    // If stricter isolation is required, consider pre-baking images with dependencies and restoring network isolation.
+
+    // Set environment variables
+    command.arg("--env").arg("PYTHONUNBUFFERED=1");
+    command.arg("--env").arg("PYTHONDONTWRITEBYTECODE=1");
+
+    // Specify the image
+    command.arg(image);
+
+    // Command to run
+    let script_name = file_path.file_name().unwrap().to_str().unwrap();
+
+    // If there's a requirements.txt, install dependencies first
+    let requirements_path = script_dir.join("requirements.txt");
+    if requirements_path.exists() {
+        // Install into a writable location (/tmp/vendor) and prepend to PYTHONPATH
+        // Redirect pip output to stderr to keep stdout clean for MCP protocol
+        command.arg("sh").arg("-c").arg(format!(
+            "pip install --no-cache-dir -q -q -r requirements.txt --target /tmp/vendor 1>&2 && PYTHONPATH=/tmp/vendor:\\$PYTHONPATH python {}",
+            script_name
+        ));
+    } else {
+        command.arg("sh").arg("-c").arg(format!(
+            "PYTHONUNBUFFERED=1 PYTHONPATH=/tmp/vendor:\\$PYTHONPATH python {}",
+            script_name
+        ));
+    }
+
+    Ok(command)
 }
 
 #[cfg(test)]

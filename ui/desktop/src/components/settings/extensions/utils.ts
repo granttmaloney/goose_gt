@@ -21,7 +21,7 @@ import { ExtensionConfig } from '../../../api/types.gen';
 export interface ExtensionFormData {
   name: string;
   description: string;
-  type: 'stdio' | 'sse' | 'streamable_http' | 'builtin';
+  type: 'stdio' | 'sse' | 'streamable_http' | 'builtin' | 'podman_python';
   cmd?: string;
   endpoint?: string;
   enabled: boolean;
@@ -161,8 +161,17 @@ export function createExtensionConfig(formData: ExtensionFormData): ExtensionCon
       ...(env_keys.length > 0 ? { env_keys } : {}),
       ...(Object.keys(headers).length > 0 ? { headers } : {}),
     };
+  } else if (formData.type === 'podman_python') {
+    return {
+      type: 'podman_python',
+      name: formData.name,
+      description: formData.description,
+      code: '', // This would need to be provided by the form
+      dependencies: [],
+      timeout: formData.timeout,
+    };
   } else {
-    // For other types
+    // For other types (builtin)
     return {
       type: formData.type,
       name: formData.name,

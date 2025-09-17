@@ -51,6 +51,16 @@ const connectToExternalBackend = async (
 ): Promise<[number, string, ChildProcess]> => {
   log.info(`Using external goosed backend on port ${port}`);
 
+  // Ensure API client in main process is configured with the external server and secret
+  client.setConfig({
+    baseUrl: `http://127.0.0.1:${port}`,
+    headers: {
+      'Content-Type': 'application/json',
+      // In external mode, main.ts sets SERVER_SECRET to 'test'
+      'X-Secret-Key': 'test',
+    },
+  });
+
   const isReady = await checkServerStatus();
   if (!isReady) {
     throw new Error(`External goosed server not accessible on port ${port}`);

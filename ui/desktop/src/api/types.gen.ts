@@ -286,6 +286,38 @@ export type ExtensionConfig = {
      */
     timeout?: number | null;
     type: 'inline_python';
+} | {
+    available_tools?: Array<string>;
+    /**
+     * Whether this extension is bundled with Goose
+     */
+    bundled?: boolean | null;
+    /**
+     * The Python code to execute
+     */
+    code: string;
+    /**
+     * Python dependencies to install
+     */
+    dependencies?: Array<string>;
+    /**
+     * Description of the extension
+     */
+    description?: string | null;
+    /**
+     * Container image to use (defaults to python:3.11-slim)
+     */
+    image?: string | null;
+    /**
+     * The name used to identify this extension
+     */
+    name: string;
+    resource_limits?: PodmanResourceLimits | null;
+    /**
+     * Timeout for the extension execution
+     */
+    timeout?: number | null;
+    type: 'podman_python';
 };
 
 /**
@@ -454,6 +486,12 @@ export type PermissionConfirmationRequest = {
  * Enum representing the possible permission levels for a tool.
  */
 export type PermissionLevel = 'always_allow' | 'ask_before' | 'never_allow';
+
+export type PodmanResourceLimits = {
+    cpu_limit?: number;
+    memory_mb?: number;
+    timeout_seconds?: number;
+};
 
 export type PrincipalType = 'Extension' | 'Tool';
 

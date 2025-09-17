@@ -18,8 +18,6 @@ crates/goose-mcp/src/computercontroller/mod.rs::new
 crates/goose-mcp/src/computercontroller/mod.rs::quick_script
 crates/goose-mcp/src/computercontroller/mod.rs::xlsx_tool
 crates/goose-mcp/src/computercontroller/pdf_tool.rs::pdf_tool
-crates/goose-mcp/src/developer/mod.rs::bash
-crates/goose-mcp/src/developer/mod.rs::new
 crates/goose-mcp/src/memory/mod.rs::new
 crates/goose-server/src/openapi.rs::convert_typed_schema
 crates/goose-server/src/openapi.rs::convert_typed_schema
@@ -27,6 +25,10 @@ crates/goose-server/src/routes/audio.rs::transcribe_elevenlabs_handler
 crates/goose-server/src/routes/audio.rs::transcribe_elevenlabs_handler
 crates/goose-server/src/routes/extension.rs::add_extension
 crates/goose-server/src/routes/extension.rs::add_extension
+crates/goose-server/src/routes/extension.rs::generate_extension_from_prompt
+crates/goose-server/src/routes/extension.rs::generate_extension_from_prompt
+crates/goose-server/src/routes/extension.rs::generate_extension_from_prompt_streaming
+crates/goose-server/src/routes/extension.rs::generate_extension_from_prompt_streaming
 crates/goose-server/src/routes/extension.rs::is_command_allowed_with_allowlist
 crates/goose-server/src/routes/extension.rs::is_command_allowed_with_allowlist
 crates/goose-server/src/routes/reply.rs::reply_handler
@@ -34,8 +36,6 @@ crates/goose-server/src/routes/reply.rs::reply_handler
 crates/goose/src/agents/agent.rs::create_recipe
 crates/goose/src/agents/agent.rs::reply_internal
 crates/goose/src/agents/extension_manager.rs::add_extension
-crates/goose/src/providers/azure.rs::post
-crates/goose/src/providers/databricks.rs::post_with_retry
 crates/goose/src/providers/formats/anthropic.rs::format_messages
 crates/goose/src/providers/formats/anthropic.rs::response_to_streaming_message<S>
 crates/goose/src/providers/formats/databricks.rs::format_messages

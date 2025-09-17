@@ -23,6 +23,8 @@ interface PropertyDefinition {
 const ToolBuilder: React.FC<ToolBuilderProps> = ({ tools, onChange }) => {
   const [selectedTool, setSelectedTool] = useState<number | null>(null);
   const [showJsonEditor, setShowJsonEditor] = useState(false);
+  // Draft names to avoid renaming the schema map key on every keystroke (which causes input blur)
+  const [draftPropNames, setDraftPropNames] = useState<Record<string, string>>({});
 
   // Add new tool
   const addTool = () => {
@@ -316,10 +318,32 @@ const ToolBuilder: React.FC<ToolBuilderProps> = ({ tools, onChange }) => {
                                       Property Name
                                     </label>
                                     <Input
-                                      value={propName}
-                                      onChange={(e) =>
-                                        updateProperty(index, propName, { name: e.target.value })
-                                      }
+                                      value={draftPropNames[`${index}:${propName}`] ?? propName}
+                                      onChange={(e) => {
+                                        const key = `${index}:${propName}`;
+                                        setDraftPropNames((prev) => ({
+                                          ...prev,
+                                          [key]: e.target.value,
+                                        }));
+                                      }}
+                                      onBlur={() => {
+                                        const key = `${index}:${propName}`;
+                                        const draft = draftPropNames[key];
+                                        if (draft && draft !== propName) {
+                                          // Commit rename only on blur
+                                          updateProperty(index, propName, { name: draft });
+                                        }
+                                        setDraftPropNames((prev) => {
+                                          const next = { ...prev } as Record<string, string>;
+                                          delete next[key];
+                                          return next;
+                                        });
+                                      }}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                          (e.target as HTMLInputElement).blur();
+                                        }
+                                      }}
                                       placeholder="property_name"
                                     />
                                   </div>

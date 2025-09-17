@@ -1,19 +1,88 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { Button } from '../../ui/button';
 import { Textarea } from '../../ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../ui/card';
-import { Loader2, Sparkles, AlertCircle } from 'lucide-react';
-import { generateExtensionFromPrompt } from '../../../api/sdk.gen';
+import { Loader2, Sparkles, AlertCircle, X } from 'lucide-react';
+import {
+  generateExtensionWithProgress,
+  ExtensionGenerationResult,
+} from '../../../lib/extensionStreaming';
+import ExtensionProgressTracker, { ProgressStep } from './ExtensionProgressTracker';
 import { toast } from 'react-hot-toast';
 
+type GeneratedExtension = Record<string, unknown> | undefined;
 interface AIExtensionGeneratorProps {
-  onExtensionGenerated?: () => void;
+  onExtensionGenerated?: (extension?: GeneratedExtension) => void;
 }
 
 export default function AIExtensionGenerator({ onExtensionGenerated }: AIExtensionGeneratorProps) {
   const [prompt, setPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showProgress, setShowProgress] = useState(false);
+  const [progressSteps, setProgressSteps] = useState<ProgressStep[]>([]);
+  const [currentStep, setCurrentStep] = useState<string | undefined>();
+  const [overallStatus, setOverallStatus] = useState<
+    'pending' | 'in_progress' | 'completed' | 'failed'
+  >('pending');
+  const [startTime, setStartTime] = useState<string | undefined>();
+  const [endTime, setEndTime] = useState<string | undefined>();
+
+  // Initialize progress steps
+  const initializeProgressSteps = useCallback(() => {
+    const steps: ProgressStep[] = [
+      {
+        id: 'validate_request',
+        title: 'Validating request',
+        status: 'pending',
+        message: 'Waiting...',
+        timestamp: new Date().toISOString(),
+      },
+      {
+        id: 'check_podman',
+        title: 'Checking Podman availability',
+        status: 'pending',
+        message: 'Waiting...',
+        timestamp: new Date().toISOString(),
+      },
+      {
+        id: 'generate_code',
+        title: 'Generating extension code',
+        status: 'pending',
+        message: 'Waiting...',
+        timestamp: new Date().toISOString(),
+      },
+      {
+        id: 'parse_response',
+        title: 'Parsing AI response',
+        status: 'pending',
+        message: 'Waiting...',
+        timestamp: new Date().toISOString(),
+      },
+      {
+        id: 'create_extension',
+        title: 'Creating extension configuration',
+        status: 'pending',
+        message: 'Waiting...',
+        timestamp: new Date().toISOString(),
+      },
+      {
+        id: 'test_extension',
+        title: 'Testing extension',
+        status: 'pending',
+        message: 'Waiting...',
+        timestamp: new Date().toISOString(),
+      },
+      {
+        id: 'finalize',
+        title: 'Finalizing extension',
+        status: 'pending',
+        message: 'Waiting...',
+        timestamp: new Date().toISOString(),
+      },
+    ];
+    setProgressSteps(steps);
+  }, []);
 
   const handleGenerate = async () => {
     if (!prompt.trim()) {
@@ -23,27 +92,99 @@ export default function AIExtensionGenerator({ onExtensionGenerated }: AIExtensi
 
     setIsGenerating(true);
     setError(null);
+    setShowProgress(true);
+    setOverallStatus('in_progress');
+    setStartTime(new Date().toISOString());
+    setEndTime(undefined);
+    initializeProgressSteps();
 
     try {
-      const response = await generateExtensionFromPrompt({
-        body: { prompt: prompt.trim() },
-      });
+      await generateExtensionWithProgress(prompt.trim(), {
+        onProgress: (progress) => {
+          setProgressSteps((prev) =>
+            prev.map((s) =>
+              s.id === progress.step
+                ? {
+                    ...s,
+                    status: progress.status,
+                    message: progress.message,
+                    details: progress.details,
+                    timestamp: new Date().toISOString(),
+                  }
+                : s
+            )
+          );
 
-      if (response.data?.extensions) {
-        toast.success('Extension generated successfully!');
-        setPrompt('');
-        onExtensionGenerated?.();
-      } else {
-        setError('Failed to generate extension');
-        toast.error('Failed to generate extension');
-      }
+          if (progress.status === 'in_progress') {
+            setCurrentStep(progress.step);
+          }
+        },
+        onComplete: (result: ExtensionGenerationResult) => {
+          setEndTime(new Date().toISOString());
+          if (result.success) {
+            setOverallStatus('completed');
+            toast.success('Extension generated successfully!');
+            setPrompt('');
+            try {
+              if (result.response && typeof result.response === 'object') {
+                window.localStorage.setItem(
+                  'goose:lastGeneratedExtension',
+                  JSON.stringify(result.response)
+                );
+              }
+            } catch (e) {
+              console.warn('Failed to persist generated extension', e);
+            }
+            if (result.response && typeof result.response === 'object') {
+              onExtensionGenerated?.(result.response as Record<string, unknown>);
+            } else {
+              onExtensionGenerated?.(undefined);
+            }
+          } else {
+            setOverallStatus('failed');
+            setError(result.error || 'Failed to generate extension');
+            toast.error('Failed to generate extension');
+            // If backend provided a partial extension config in the response, hand it off so the user can fix and retry
+            if (result.response && typeof result.response === 'object') {
+              try {
+                window.localStorage.setItem(
+                  'goose:lastGeneratedExtension',
+                  JSON.stringify(result.response)
+                );
+              } catch (e) {
+                console.warn('Failed to persist partial generated extension', e);
+              }
+              onExtensionGenerated?.(result.response as Record<string, unknown>);
+              setShowProgress(true);
+            }
+          }
+        },
+        onError: (error) => {
+          setEndTime(new Date().toISOString());
+          setOverallStatus('failed');
+          setError(error.message);
+          toast.error('Failed to generate extension');
+        },
+      });
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to generate extension';
       setError(errorMessage);
+      setOverallStatus('failed');
+      setEndTime(new Date().toISOString());
       toast.error('Failed to generate extension');
     } finally {
       setIsGenerating(false);
     }
+  };
+
+  const handleCancel = () => {
+    setIsGenerating(false);
+    setShowProgress(false);
+    setOverallStatus('pending');
+    setError(null);
+    setCurrentStep(undefined);
+    setStartTime(undefined);
+    setEndTime(undefined);
   };
 
   const examplePrompts = [
@@ -89,23 +230,44 @@ export default function AIExtensionGenerator({ onExtensionGenerated }: AIExtensi
           </div>
         )}
 
-        <Button
-          onClick={handleGenerate}
-          disabled={isGenerating || !prompt.trim()}
-          className="w-full"
-        >
-          {isGenerating ? (
-            <>
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              Generating Extension...
-            </>
-          ) : (
-            <>
-              <Sparkles className="h-4 w-4 mr-2" />
-              Generate Extension
-            </>
+        <div className="flex gap-2">
+          <Button
+            onClick={handleGenerate}
+            disabled={isGenerating || !prompt.trim()}
+            className="flex-1"
+          >
+            {isGenerating ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Generating Extension...
+              </>
+            ) : (
+              <>
+                <Sparkles className="h-4 w-4 mr-2" />
+                Generate Extension
+              </>
+            )}
+          </Button>
+
+          {isGenerating && (
+            <Button onClick={handleCancel} variant="outline" size="sm" className="px-3">
+              <X className="h-4 w-4" />
+            </Button>
           )}
-        </Button>
+        </div>
+
+        {/* Progress Tracker */}
+        {showProgress && (
+          <div className="mt-6">
+            <ExtensionProgressTracker
+              steps={progressSteps}
+              currentStep={currentStep}
+              overallStatus={overallStatus}
+              startTime={startTime}
+              endTime={endTime}
+            />
+          </div>
+        )}
 
         <div className="space-y-2">
           <h4 className="text-sm font-medium text-gray-700">Example prompts:</h4>

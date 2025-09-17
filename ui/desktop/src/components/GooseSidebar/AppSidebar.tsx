@@ -12,6 +12,7 @@ import {
   SidebarSeparator,
 } from '../ui/sidebar';
 import { ChatSmart, Gear } from '../icons';
+import logoPng from '../../images/icon.png';
 import { ViewOptions, View } from '../../utils/navigationUtils';
 import { useChatContext } from '../../contexts/ChatContext';
 import { DEFAULT_CHAT_TITLE } from '../../contexts/ChatContext';
@@ -162,6 +163,24 @@ const AppSidebar: React.FC<SidebarProps> = ({ currentPath }) => {
   return (
     <>
       <SidebarContent className="pt-16">
+        {/* App logo header above navigation */}
+        <div className="px-2 pb-1">
+          <div className="pl-3">
+            <button
+              type="button"
+              onClick={() => navigate('/')}
+              className="ml-[4px] transition-opacity hover:opacity-90"
+              aria-label="Go to Home"
+            >
+              <img
+                src={logoPng}
+                alt="Goose Logo"
+                className="h-24 w-24 object-contain"
+                draggable={false}
+              />
+            </button>
+          </div>
+        </div>
         <SidebarMenu>{menuItems.map((entry, index) => renderMenuItem(entry, index))}</SidebarMenu>
       </SidebarContent>
 

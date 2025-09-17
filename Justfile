@@ -4,6 +4,34 @@
 default:
   @just --list
 
+# Clean up any leftover Goose processes
+cleanup:
+  @echo "🧹 Cleaning up leftover processes..."
+  @./scripts/cleanup.sh
+
+# Clean up and exit (useful for testing)
+cleanup-and-exit:
+  @just cleanup
+  @echo "✅ All processes cleaned up"
+
+# Test server with automatic cleanup
+test-server port="51998" host="127.0.0.1":
+  @just cleanup
+  @echo "🚀 Starting test server on {{host}}:{{port}}"
+  @./scripts/test-server.sh {{port}} {{host}}
+
+# Test extension functionality
+test-extension name="test-extension" type="podman_python" data="test input":
+  @just cleanup
+  @echo "🧪 Testing extension: {{name}}"
+  @./scripts/test-extension.sh {{name}} {{type}} "{{data}}"
+
+# Test extension with Podman fallback
+test-extension-fallback name="test-fallback" data="fallback test":
+  @just cleanup
+  @echo "🧪 Testing extension fallback: {{name}}"
+  @./scripts/test-extension.sh {{name}} "podman_python" "{{data}}"
+
 # Default release command
 release-binary:
     @echo "Building release version..."
